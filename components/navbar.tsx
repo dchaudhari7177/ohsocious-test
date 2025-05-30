@@ -1,6 +1,6 @@
 "use client"
 
-import { Bell, Menu, Search } from "lucide-react"
+import { Bell, Menu, Search, MessageSquare } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
@@ -111,11 +111,18 @@ export function Navbar() {
           <Button variant="ghost" size="icon" className="relative" asChild>
             <Link href="/notifications">
               <>
-            <Bell className="h-5 w-5" />
-            <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-secondary-pink text-[10px] text-white">
-              3
-            </span>
+                <Bell className="h-5 w-5" />
+                <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-secondary-pink text-[10px] text-white">
+                  3
+                </span>
               </>
+            </Link>
+          </Button>
+
+          {/* Chat link for desktop */}
+          <Button variant="ghost" size="icon" asChild className="hidden md:flex items-center justify-center">
+            <Link href="/chat">
+              <MessageSquare className="h-5 w-5" />
             </Link>
           </Button>
 
