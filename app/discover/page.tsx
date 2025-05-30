@@ -7,6 +7,8 @@ import { StudentCard } from "@/components/student-card"
 import { Navbar } from "@/components/navbar"
 import { calculateMatchScore } from "@/lib/matching"
 import { useToast } from "@/components/ui/use-toast"
+import { AnimatePresence, motion } from "framer-motion"
+import { wrap } from "framer-motion";
 
 // Sample student data
 const students = [
@@ -74,57 +76,56 @@ const students = [
 
 export default function DiscoverPage() {
   const [currentIndex, setCurrentIndex] = useState(0)
-  const [dragX, setDragX] = useState(0)
-  const [isDragging, setIsDragging] = useState(false)
   const [swipeDirection, setSwipeDirection] = useState<"left" | "right" | null>(null)
-  const startX = useRef<number | null>(null)
   const { toast } = useToast()
 
-  const handlePointerDown = (e: React.PointerEvent) => {
-    setIsDragging(true)
-    startX.current = e.clientX
-  }
-
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isDragging || startX.current === null) return
-    setDragX(e.clientX - startX.current)
-  }
-
-  const handlePointerUp = () => {
-    setIsDragging(false)
-    if (dragX > 100) {
-      setSwipeDirection("right")
-      handleSwipe("right")
-    } else if (dragX < -100) {
-      setSwipeDirection("left")
-      handleSwipe("left")
-    } else {
-      setSwipeDirection(null)
-    }
-    setDragX(0)
-    startX.current = null
-  }
-
-  const handleSwipe = (direction: "left" | "right" | "wave") => {
-    // In a real app, this would handle the swipe action
-    console.log(`Swiped ${direction} on ${students[currentIndex].name}`)
+  const handleSwipe = (direction: "left" | "right" | "wave", studentName: string) => {
+    console.log(`Swiped ${direction} on ${studentName}`)
     if (direction === "right" && matchScore > 0.7) {
       toast({
         title: "Match!",
-        description: `You matched with ${students[currentIndex].name}!`,
+        description: `You matched with ${studentName}!`,
         duration: 3000,
       })
     }
-    if (currentIndex < students.length - 1) {
-      setCurrentIndex(currentIndex + 1)
-    } else {
-      setCurrentIndex(0)
+
+    // Set swipe direction for exit animation if it's a left or right swipe
+    if (direction === "left" || direction === "right") {
+        setSwipeDirection(direction);
     }
+
+    // Delay state update to allow exit animation
+    setTimeout(() => {
+      setSwipeDirection(null); // Reset after animation
+      const nextIndex = currentIndex + 1;
+      if (nextIndex < students.length) {
+        setCurrentIndex(nextIndex);
+      } else {
+        // Reached end of list, show empty state
+        setCurrentIndex(students.length); // Set index out of bounds to show empty state
+      }
+    }, 400); // Duration should match exit animation duration
   }
+
+  const handleDragEnd = (event: MouseEvent | TouchEvent | PointerEvent, info: import("framer-motion").PanInfo) => {
+    const threshold = 150; // Distance threshold for a swipe
+    const velocity = info.velocity.x; // Get swipe velocity
+
+    if (info.offset.x > threshold || velocity > 500) {
+      // Swiped right
+      handleSwipe("right", students[currentIndex].name);
+    } else if (info.offset.x < -threshold || velocity < -500) {
+      // Swiped left
+      handleSwipe("left", students[currentIndex].name);
+    } else {
+      // Not a full swipe, animate back to center (handled by Framer Motion default behavior)
+      setSwipeDirection(null); // Ensure no exit animation
+    }
+  };
 
   // Calculate match score for the current student
   const currentStudent = students[currentIndex]
-  const matchScore = calculateMatchScore(currentStudent, students[0]) // Assuming students[0] is the current user
+  const matchScore = currentStudent ? calculateMatchScore(currentStudent, students[0]) : 0;
 
   return (
     <>
@@ -136,55 +137,88 @@ export default function DiscoverPage() {
         </div>
         <div className="mt-6">
           <div
-            className="relative mx-auto max-w-sm min-h-[400px] flex items-center justify-center select-none"
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerLeave={handlePointerUp}
+            className="relative mx-auto max-w-sm min-h-[450px] flex items-center justify-center select-none"
             style={{ touchAction: "pan-y" }}
           >
-            <div
-              className="w-full transition-all duration-200"
-              style={{
-                transform: `translateX(${dragX}px) rotate(${dragX / 20}deg) scale(${isDragging ? 1.05 : 1})`,
-                backgroundColor: swipeDirection === "right" ? "rgba(0, 255, 0, 0.2)" : swipeDirection === "left" ? "rgba(255, 0, 0, 0.2)" : "transparent",
-              }}
-            >
-              <StudentCard student={currentStudent} />
-              {swipeDirection === "right" && (
-                <div className="absolute top-4 right-4 flex items-center">
-                  <Check className="h-8 w-8 text-green-500" />
-                  <span className="ml-2 text-green-500 font-bold">Connect!</span>
-                </div>
+            <AnimatePresence initial={false} mode="wait">
+            {currentStudent ? (
+                <motion.div
+                  key={currentStudent.id}
+                  className="w-full h-full flex items-center justify-center"
+                  drag="x"
+                  dragConstraints={{ left: 0, right: 0 }}
+                  dragElastic={0.8}
+                  onDragEnd={handleDragEnd}
+                  initial={{ rotate: 0, opacity: 1, scale: 1, x: 0 }}
+                  animate={{ rotate: 0, opacity: 1, scale: 1, x: 0 }}
+                  exit={{
+                    x: swipeDirection === 'right' ? 800 : swipeDirection === 'left' ? -800 : 0,
+                    rotate: swipeDirection === 'right' ? 40 : swipeDirection === 'left' ? -40 : 0,
+                    opacity: 0,
+                    transition: { duration: 0.4, ease: "easeOut" }
+                  }}
+                >
+                  <div className="w-full h-full flex items-center justify-center"
+                    style={{
+                      backgroundColor: swipeDirection === "right" ? "rgba(0, 255, 0, 0.1)" : swipeDirection === "left" ? "rgba(255, 0, 0, 0.1)" : "transparent",
+                      borderRadius: '0.75rem'
+                    }}
+                  >
+                    <StudentCard student={currentStudent} />
+                    {swipeDirection === "right" && (
+                      <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="absolute top-4 right-4 flex items-center text-green-500 font-bold text-2xl rotate-12"
+                      >
+                        CONNECT!
+                      </motion.div>
+                    )}
+                    {swipeDirection === "left" && (
+                      <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="absolute top-4 left-4 flex items-center text-red-500 font-bold text-2xl -rotate-12"
+                      >
+                        NAH!
+                      </motion.div>
+                    )}
+                  </div>
+                </motion.div>
+            ) : (
+                <motion.div
+                  key="empty-state"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="text-center text-gray-500"
+                >
+                  <p>No more students to discover right now!</p>
+                </motion.div>
               )}
-              {swipeDirection === "left" && (
-                <div className="absolute top-4 left-4 flex items-center">
-                  <X className="h-8 w-8 text-red-500" />
-                  <span className="ml-2 text-red-500 font-bold">Nah!</span>
-                </div>
-              )}
-            </div>
+            </AnimatePresence>
           </div>
-          <div className="mt-6 flex justify-center gap-4">
+          <div className="mt-8 flex justify-center gap-4">
             <Button
               size="lg"
               variant="outline"
               className="h-14 w-14 rounded-full border-2 border-gray-300"
-              onClick={() => handleSwipe("left")}
+              onClick={() => handleSwipe("left", students[currentIndex].name)}
             >
               <X className="h-6 w-6 text-gray-500" />
             </Button>
             <Button
               size="lg"
               className="h-14 w-14 rounded-full bg-blue-500 hover:bg-blue-600"
-              onClick={() => handleSwipe("wave")}
+              onClick={() => handleSwipe("wave", students[currentIndex].name)}
             >
               <Wave className="h-6 w-6" />
             </Button>
             <Button
               size="lg"
               className="h-14 w-14 rounded-full bg-primary-purple hover:bg-primary-purple/90"
-              onClick={() => handleSwipe("right")}
+              onClick={() => handleSwipe("right", students[currentIndex].name)}
             >
               <Heart className="h-6 w-6" />
             </Button>
