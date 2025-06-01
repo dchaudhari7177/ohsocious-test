@@ -66,16 +66,15 @@
 
 .confetti {
   position: absolute;
-  width: 10px;
-  height: 10px;
-  background-color: #7e5bef;
-  border-radius: 50%;
-  animation: confetti-fall 3s ease-in-out forwards;
+  animation: confetti-fall 3s linear infinite;
+  opacity: 0.7;
+  border-radius: 2px;
+  transform-origin: center;
 }
 
 @keyframes confetti-fall {
   0% {
-    transform: translateY(-100vh) rotate(0deg);
+    transform: translateY(-100%) rotate(0deg);
     opacity: 1;
   }
   100% {

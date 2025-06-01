@@ -5,6 +5,9 @@ import { Button } from "@/components/ui/button"
 import { ArrowRight } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { Badge } from "@/components/ui/badge"
+import { auth, db } from "@/lib/firebase"
+import { doc, updateDoc } from "firebase/firestore"
+import { useAuth } from "@/contexts/auth-context"
 
 const interestCategories = [
   {
@@ -33,6 +36,7 @@ export default function InterestsPage() {
   const router = useRouter()
   const [selectedInterests, setSelectedInterests] = useState<string[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const { refreshUserData } = useAuth()
 
   const toggleInterest = (interest: string) => {
     if (selectedInterests.includes(interest)) {
@@ -42,16 +46,32 @@ export default function InterestsPage() {
     }
   }
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     if (selectedInterests.length < 3) return
-
     setIsSubmitting(true)
 
-    // Simulate API call
-    setTimeout(() => {
-      setIsSubmitting(false)
+    try {
+      const user = auth.currentUser
+      if (!user) throw new Error("No authenticated user found")
+
+      // Update user profile in Firestore
+      await updateDoc(doc(db, "users", user.uid), {
+        interests: selectedInterests,
+        interestsCompleted: true,
+        updatedAt: new Date().toISOString()
+      })
+
+      // Refresh user data in context
+      await refreshUserData()
+
+      // Navigate to next page
       router.push("/onboarding/welcome")
-    }, 1000)
+    } catch (error) {
+      console.error("Error updating interests:", error)
+      // You might want to show an error message to the user here
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (

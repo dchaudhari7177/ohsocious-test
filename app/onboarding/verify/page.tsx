@@ -1,17 +1,85 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { ArrowRight, CheckCircle, Mail } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
+import { auth } from "@/lib/firebase"
+import { sendEmailVerification, reload } from "firebase/auth"
+import { useAuth } from "@/contexts/auth-context"
 
 export default function VerifyPage() {
   const router = useRouter()
+  const { refreshUserData } = useAuth()
   const searchParams = useSearchParams()
   const email = searchParams.get("email") || ""
   const [countdown, setCountdown] = useState(60)
   const [isResending, setIsResending] = useState(false)
+  const [isVerified, setIsVerified] = useState(false)
+  const [isChecking, setIsChecking] = useState(true)
 
+  // Single verification check function
+  const checkVerification = useCallback(async () => {
+    try {
+      const user = auth.currentUser
+      if (!user) {
+        router.push("/onboarding/login")
+        return false
+      }
+
+      await reload(user)
+      if (user.emailVerified) {
+        setIsVerified(true)
+        await refreshUserData()
+        setTimeout(() => {
+          router.push("/onboarding/profile")
+        }, 1500)
+        return true
+      }
+      return false
+    } catch (error) {
+      console.error("Error checking verification:", error)
+      return false
+    }
+  }, [router, refreshUserData])
+
+  // Single verification check effect
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null
+    let isActive = true
+
+    const runVerificationCheck = async () => {
+      if (!isActive) return
+      
+      const verified = await checkVerification()
+      if (verified) {
+        if (interval) clearInterval(interval)
+        return
+      }
+
+      if (!interval && isActive) {
+        interval = setInterval(async () => {
+          const verified = await checkVerification()
+          if (verified && interval) {
+            clearInterval(interval)
+          }
+        }, 3000)
+      }
+      
+      setIsChecking(false)
+    }
+
+    runVerificationCheck()
+
+    return () => {
+      isActive = false
+      if (interval) {
+        clearInterval(interval)
+      }
+    }
+  }, [checkVerification])
+
+  // Countdown timer effect
   useEffect(() => {
     const timer = setInterval(() => {
       setCountdown((prev) => (prev > 0 ? prev - 1 : 0))
@@ -20,18 +88,30 @@ export default function VerifyPage() {
     return () => clearInterval(timer)
   }, [])
 
-  const handleResend = () => {
+  const handleResend = async () => {
+    if (isResending || countdown > 0) return
+    
     setIsResending(true)
-    // Simulate API call
-    setTimeout(() => {
-      setIsResending(false)
-      setCountdown(60)
-    }, 1500)
+    try {
+      const user = auth.currentUser
+      if (user) {
+        await sendEmailVerification(user)
+        setCountdown(60)
+      }
+    } catch (error) {
+      console.error("Error resending verification email:", error)
+    }
+    setIsResending(false)
   }
 
-  // Simulate verification for demo purposes
-  const handleVerify = () => {
-    router.push("/onboarding/profile")
+  if (isChecking) {
+    return (
+      <div className="w-full space-y-6 rounded-xl bg-white p-6 shadow-lg">
+        <div className="flex justify-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary-purple border-t-transparent"></div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -42,7 +122,7 @@ export default function VerifyPage() {
         </div>
         <h1 className="text-2xl font-bold text-gray-900">Check your inbox</h1>
         <p className="text-sm text-gray-600">
-          We sent a magic link to <span className="font-medium">{email}</span>
+          We sent a verification link to <span className="font-medium">{email}</span>
         </p>
       </div>
 
@@ -52,22 +132,15 @@ export default function VerifyPage() {
             <CheckCircle className="h-4 w-4 text-primary-purple" />
           </div>
           <div className="space-y-1">
-            <p className="text-sm font-medium text-gray-900">Click the link in your email</p>
+            <p className="text-sm font-medium text-gray-900">Click the verification link in your email</p>
             <p className="text-xs text-gray-600">
-              The magic link will verify your college email and create your account
+              The link will verify your college email and allow you to continue setting up your profile
             </p>
           </div>
         </div>
       </div>
 
-      {/* For demo purposes, we'll add a button to simulate verification */}
-      <Button onClick={handleVerify} className="w-full bg-primary-purple hover:bg-primary-purple/90">
-        <span className="flex items-center gap-2">
-          Simulate Verification <ArrowRight className="h-4 w-4" />
-        </span>
-      </Button>
-
-      <div className="text-center">
+      <div className="space-y-2 text-center">
         <p className="text-sm text-gray-600">Didn&apos;t receive an email?</p>
         <Button
           variant="link"
@@ -83,10 +156,19 @@ export default function VerifyPage() {
           ) : countdown > 0 ? (
             `Resend in ${countdown}s`
           ) : (
-            "Resend magic link"
+            "Resend verification link"
           )}
         </Button>
       </div>
+
+      {isVerified && (
+        <div className="rounded-lg bg-green-50 p-4 text-center text-green-700">
+          <p className="flex items-center justify-center gap-2">
+            <CheckCircle className="h-5 w-5" />
+            Email verified! Redirecting...
+          </p>
+        </div>
+      )}
     </div>
   )
 }

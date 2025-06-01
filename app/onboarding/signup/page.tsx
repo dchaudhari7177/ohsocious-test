@@ -1,96 +1,173 @@
 "use client"
 
-import type React from "react"
-
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ArrowRight, Mail } from "lucide-react"
-import { useRouter } from "next/navigation"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { auth, db } from "@/lib/firebase"
+import { createUserWithEmailAndPassword, sendEmailVerification, setPersistence, browserLocalPersistence } from "firebase/auth"
+import { doc, setDoc } from "firebase/firestore"
+import { useRouter } from "next/navigation"
+import Link from "next/link"
+import { useAuth } from "@/contexts/auth-context"
 
 export default function SignupPage() {
-  const router = useRouter()
   const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
   const [error, setError] = useState("")
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const router = useRouter()
+  const { refreshUserData } = useAuth()
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const validateEmail = (email: string) => {
+    // Basic email validation
+    if (!email.includes("@")) return false
+    
+    // Check for .edu domain
+    const domain = email.split("@")[1]
+    return domain.toLowerCase().endsWith(".edu")
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
 
-    // Check if email is empty
-    if (!email.trim()) {
-      setError("Please enter your email address")
+    // Validate form
+    if (!email || !password || !confirmPassword) {
+      setError("All fields are required")
       return
     }
 
-    // Check if email has a college domain
-    const emailRegex = /@.*\.edu$/i
-    if (!emailRegex.test(email)) {
-      setError("Please use your college email address (ending with .edu)")
+    if (!validateEmail(email)) {
+      setError("Please use a valid .edu email address")
       return
     }
 
-    setIsSubmitting(true)
+    if (password !== confirmPassword) {
+      setError("Passwords do not match")
+      return
+    }
 
-    // Simulate API call
-    setTimeout(() => {
-      setIsSubmitting(false)
-      router.push(`/onboarding/verify?email=${encodeURIComponent(email)}`)
-    }, 1500)
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters long")
+      return
+    }
+
+    setLoading(true)
+
+    try {
+      // Ensure we're using local persistence
+      await setPersistence(auth, browserLocalPersistence)
+      
+      // Create user
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password)
+      const user = userCredential.user
+
+      // Send verification email
+      await sendEmailVerification(user)
+
+      // Create initial user document
+      await setDoc(doc(db, "users", user.uid), {
+        email: user.email,
+        emailVerified: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      })
+
+      // Refresh user data in context
+      await refreshUserData()
+
+      // Redirect to verify page with email
+      const redirectUrl = `/onboarding/verify?email=${encodeURIComponent(email)}`
+      await router.push(redirectUrl)
+    } catch (error: any) {
+      console.error("Signup error:", error)
+      if (error.code === "auth/email-already-in-use") {
+        setError("This email is already registered")
+      } else {
+        setError("An error occurred during signup")
+      }
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
-    <div className="w-full space-y-6 rounded-xl bg-white p-6 shadow-lg">
-      <div className="space-y-2 text-center">
-        <h1 className="text-2xl font-bold text-gray-900">Join ohsocious</h1>
-        <p className="text-sm text-gray-600">Enter your college email to get started</p>
-      </div>
+    <div className="container flex h-screen items-center justify-center">
+      <Card className="w-full max-w-md">
+        <CardHeader className="space-y-1">
+          <CardTitle className="text-2xl">Create an account</CardTitle>
+          <CardDescription>Sign up with your college email</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {error && (
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+            
+            <div className="space-y-2">
+              <Label htmlFor="email">College Email</Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="your.email@college.edu"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="email" className="text-sm font-medium">
-            College Email
-          </Label>
-          <div className="relative">
-            <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
-            <Input
-              id="email"
-              type="email"
-              placeholder="you@college.edu"
-              className="pl-10"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          </div>
-          <p className="text-xs text-gray-500">We only allow verified college emails</p>
-        </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirmPassword">Confirm Password</Label>
+              <Input
+                id="confirmPassword"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+              />
+            </div>
 
-        {error && (
-          <Alert variant="destructive" className="py-2">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
+            <Button 
+              type="submit" 
+              className="w-full bg-primary-purple hover:bg-primary-purple/90"
+              disabled={loading}
+            >
+              {loading ? (
+                <span className="flex items-center gap-2">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+                  Creating account...
+                </span>
+              ) : (
+                "Sign up"
+              )}
+            </Button>
 
-        <Button type="submit" className="w-full bg-primary-purple hover:bg-primary-purple/90" disabled={isSubmitting}>
-          {isSubmitting ? (
-            <span className="flex items-center gap-2">
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
-              Verifying...
-            </span>
-          ) : (
-            <span className="flex items-center gap-2">
-              Continue <ArrowRight className="h-4 w-4" />
-            </span>
-          )}
-        </Button>
-      </form>
-
-      <div className="text-center text-xs text-gray-500">
-        <p>By signing up, you agree to our Terms of Service and Privacy Policy</p>
-      </div>
+            <div className="mt-4 text-center text-sm">
+              Already have an account?{" "}
+              <Link href="/onboarding/login" className="text-primary-purple hover:underline">
+                Sign in
+              </Link>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   )
 }

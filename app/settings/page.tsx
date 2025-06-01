@@ -9,10 +9,31 @@ import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft, Save } from "lucide-react"
+import { ArrowLeft, Save, LogOut, Trash2 } from "lucide-react"
 import Link from "next/link"
+import { useAuth } from "@/contexts/auth-context"
+import { doc, updateDoc, deleteDoc, collection, query, where, getDocs } from "firebase/firestore"
+import { db, auth } from "@/lib/firebase"
+import { useToast } from "@/components/ui/use-toast"
+import { signOut, deleteUser } from "firebase/auth"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { useRouter } from "next/navigation"
 
 export default function SettingsPage() {
+  const { user, userData, refreshUserData } = useAuth()
+  const { toast } = useToast()
+  const router = useRouter()
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+
+  const [formData, setFormData] = useState({
+    firstName: userData?.firstName || "",
+    lastName: userData?.lastName || "",
+    department: userData?.department || "",
+    year: userData?.year || "",
+    bio: userData?.bio || "",
+  })
+
   const [notificationSettings, setNotificationSettings] = useState({
     messages: true,
     mentions: true,
@@ -28,11 +49,155 @@ export default function SettingsPage() {
     allowMessages: "connections",
   })
 
+  const [loading, setLoading] = useState(false)
+
   const handleNotificationToggle = (setting: keyof typeof notificationSettings) => {
     setNotificationSettings({
       ...notificationSettings,
       [setting]: !notificationSettings[setting],
     })
+  }
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }))
+  }
+
+  const handleSelectChange = (name: string, value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }))
+  }
+
+  const handleSaveProfile = async () => {
+    if (!user) return
+
+    setLoading(true)
+    try {
+      await updateDoc(doc(db, "users", user.uid), {
+        ...formData,
+        updatedAt: new Date().toISOString()
+      })
+      
+      await refreshUserData()
+      
+      toast({
+        title: "Success",
+        description: "Profile settings updated successfully",
+      })
+    } catch (error) {
+      console.error("Error updating profile:", error)
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to update profile settings",
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSaveNotifications = async () => {
+    if (!user) return
+
+    setLoading(true)
+    try {
+      await updateDoc(doc(db, "users", user.uid), {
+        notificationSettings,
+        updatedAt: new Date().toISOString()
+      })
+      
+      toast({
+        title: "Success",
+        description: "Notification settings updated successfully",
+      })
+    } catch (error) {
+      console.error("Error updating notifications:", error)
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to update notification settings",
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSavePrivacy = async () => {
+    if (!user) return
+
+    setLoading(true)
+    try {
+      await updateDoc(doc(db, "users", user.uid), {
+        privacySettings,
+        updatedAt: new Date().toISOString()
+      })
+      
+      toast({
+        title: "Success",
+        description: "Privacy settings updated successfully",
+      })
+    } catch (error) {
+      console.error("Error updating privacy:", error)
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to update privacy settings",
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth)
+      router.push("/onboarding/login")
+    } catch (error) {
+      console.error("Error logging out:", error)
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to log out. Please try again.",
+      })
+    }
+  }
+
+  const handleDeleteAccount = async () => {
+    setIsDeleting(true)
+    try {
+      const user = auth.currentUser
+      if (!user) return
+
+      // Delete user's posts
+      const postsQuery = query(collection(db, "posts"), where("userId", "==", user.uid))
+      const postsSnapshot = await getDocs(postsQuery)
+      const deletePromises = postsSnapshot.docs.map(doc => deleteDoc(doc.ref))
+      await Promise.all(deletePromises)
+
+      // Delete user document
+      await deleteDoc(doc(db, "users", user.uid))
+
+      // Delete Firebase Auth account
+      await deleteUser(user)
+
+      // Redirect to login
+      router.push("/onboarding/login")
+    } catch (error) {
+      console.error("Error deleting account:", error)
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to delete account. Please try again.",
+      })
+    } finally {
+      setIsDeleting(false)
+      setIsDeleteDialogOpen(false)
+    }
   }
 
   return (
@@ -63,23 +228,36 @@ export default function SettingsPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="firstName">First Name</Label>
-                  <Input id="firstName" defaultValue="Alex" />
+                  <Input 
+                    id="firstName" 
+                    name="firstName"
+                    value={formData.firstName}
+                    onChange={handleInputChange}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="lastName">Last Name</Label>
-                  <Input id="lastName" defaultValue="Johnson" />
+                  <Input 
+                    id="lastName" 
+                    name="lastName"
+                    value={formData.lastName}
+                    onChange={handleInputChange}
+                  />
                 </div>
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
-                <Input id="email" defaultValue="alex.johnson@college.edu" disabled />
+                <Input id="email" value={user?.email || ""} disabled />
                 <p className="text-xs text-gray-500">Email cannot be changed</p>
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="department">Department</Label>
-                <Select defaultValue="Computer Science">
+                <Select 
+                  value={formData.department}
+                  onValueChange={(value) => handleSelectChange("department", value)}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Select department" />
                   </SelectTrigger>
@@ -95,7 +273,10 @@ export default function SettingsPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="year">Year</Label>
-                <Select defaultValue="Junior">
+                <Select 
+                  value={formData.year}
+                  onValueChange={(value) => handleSelectChange("year", value)}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Select year" />
                   </SelectTrigger>
@@ -113,13 +294,20 @@ export default function SettingsPage() {
                 <Label htmlFor="bio">Bio</Label>
                 <Textarea
                   id="bio"
-                  defaultValue="CS major with a passion for web development and AI. Always looking for new projects and hackathons!"
+                  name="bio"
+                  value={formData.bio}
+                  onChange={handleInputChange}
                   className="min-h-24"
                 />
               </div>
 
-              <Button className="w-full bg-primary-purple hover:bg-primary-purple/90">
-                <Save className="mr-2 h-4 w-4" /> Save Changes
+              <Button 
+                className="w-full bg-primary-purple hover:bg-primary-purple/90"
+                onClick={handleSaveProfile}
+                disabled={loading}
+              >
+                <Save className="mr-2 h-4 w-4" /> 
+                {loading ? "Saving..." : "Save Changes"}
               </Button>
             </CardContent>
           </Card>
@@ -145,7 +333,59 @@ export default function SettingsPage() {
                 <Input id="confirmPassword" type="password" />
               </div>
 
-              <Button className="w-full bg-primary-purple hover:bg-primary-purple/90">Update Password</Button>
+              <Button className="w-full bg-primary-purple hover:bg-primary-purple/90">
+                Update Password
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Account Actions</CardTitle>
+              <CardDescription>Manage your account settings</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-col gap-4">
+                <Button variant="outline" onClick={handleLogout}>
+                  <LogOut className="mr-2 h-4 w-4" /> Logout
+                </Button>
+                <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button variant="destructive">
+                      <Trash2 className="mr-2 h-4 w-4" /> Delete Account
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Delete Account</DialogTitle>
+                      <DialogDescription>
+                        Are you sure you want to delete your account? This action cannot be undone and will permanently delete all your data.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                      <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
+                        Cancel
+                      </Button>
+                      <Button 
+                        variant="destructive" 
+                        onClick={handleDeleteAccount}
+                        disabled={isDeleting}
+                      >
+                        {isDeleting ? (
+                          <span className="flex items-center gap-2">
+                            <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+                            Deleting...
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-2">
+                            <Trash2 className="h-4 w-4" /> Delete Account
+                          </span>
+                        )}
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -212,7 +452,13 @@ export default function SettingsPage() {
                 />
               </div>
 
-              <Button className="w-full bg-primary-purple hover:bg-primary-purple/90">Save Preferences</Button>
+              <Button 
+                className="w-full bg-primary-purple hover:bg-primary-purple/90"
+                onClick={handleSaveNotifications}
+                disabled={loading}
+              >
+                {loading ? "Saving..." : "Save Preferences"}
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>
@@ -227,7 +473,7 @@ export default function SettingsPage() {
               <div className="space-y-2">
                 <Label htmlFor="profileVisibility">Profile Visibility</Label>
                 <Select
-                  defaultValue={privacySettings.profileVisibility}
+                  value={privacySettings.profileVisibility}
                   onValueChange={(value) => setPrivacySettings({ ...privacySettings, profileVisibility: value })}
                 >
                   <SelectTrigger>
@@ -266,7 +512,7 @@ export default function SettingsPage() {
               <div className="space-y-2">
                 <Label htmlFor="messagePermissions">Who can message you</Label>
                 <Select
-                  defaultValue={privacySettings.allowMessages}
+                  value={privacySettings.allowMessages}
                   onValueChange={(value) => setPrivacySettings({ ...privacySettings, allowMessages: value })}
                 >
                   <SelectTrigger>
@@ -280,7 +526,13 @@ export default function SettingsPage() {
                 </Select>
               </div>
 
-              <Button className="w-full bg-primary-purple hover:bg-primary-purple/90">Save Privacy Settings</Button>
+              <Button 
+                className="w-full bg-primary-purple hover:bg-primary-purple/90"
+                onClick={handleSavePrivacy}
+                disabled={loading}
+              >
+                {loading ? "Saving..." : "Save Privacy Settings"}
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>

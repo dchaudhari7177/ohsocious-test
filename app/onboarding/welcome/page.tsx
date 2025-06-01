@@ -5,10 +5,15 @@ import { Button } from "@/components/ui/button"
 import { Rocket } from "lucide-react"
 import { useRouter } from "next/navigation"
 import Image from "next/image"
+import { useAuth } from "@/contexts/auth-context"
+import { auth, db } from "@/lib/firebase"
+import { doc, updateDoc } from "firebase/firestore"
 
 export default function WelcomePage() {
   const router = useRouter()
+  const { userData, refreshUserData } = useAuth()
   const [confetti, setConfetti] = useState<{ id: number; left: string; delay: string; color: string }[]>([])
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
     // Create confetti pieces
@@ -32,6 +37,31 @@ export default function WelcomePage() {
   const getRandomColor = () => {
     const colors = ["#7E5BEF", "#FF5C8A", "#FBBF24", "#34D399"]
     return colors[Math.floor(Math.random() * colors.length)]
+  }
+
+  const handleContinue = async () => {
+    setIsSubmitting(true)
+
+    try {
+      const user = auth.currentUser
+      if (!user) throw new Error("No authenticated user found")
+
+      // Mark onboarding as completed in Firestore
+      await updateDoc(doc(db, "users", user.uid), {
+        onboardingCompleted: true,
+        updatedAt: new Date().toISOString()
+      })
+
+      // Refresh user data in context
+      await refreshUserData()
+
+      // Navigate to feed
+      router.push("/feed")
+    } catch (error) {
+      console.error("Error completing onboarding:", error)
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -66,7 +96,7 @@ export default function WelcomePage() {
             <div className="flex items-center justify-center gap-3">
               <div className="relative h-12 w-12 overflow-hidden rounded-full">
                 <Image
-                  src="/placeholder.svg?height=48&width=48"
+                  src={userData?.profileImage || "/placeholder.svg?height=48&width=48"}
                   alt="Profile"
                   width={48}
                   height={48}
@@ -74,15 +104,19 @@ export default function WelcomePage() {
                 />
               </div>
               <div className="text-left">
-                <p className="font-medium text-gray-900">John Doe</p>
-                <p className="text-xs text-gray-500">Computer Science • Junior</p>
+                <p className="font-medium text-gray-900">
+                  {userData?.firstName} {userData?.lastName}
+                </p>
+                <p className="text-xs text-gray-500">{userData?.department} • {userData?.year}</p>
                 <div className="mt-1 flex gap-1">
-                  <span className="inline-block rounded-full bg-primary-purple/10 px-2 py-0.5 text-xs text-primary-purple">
-                    Gaming
-                  </span>
-                  <span className="inline-block rounded-full bg-secondary-pink/10 px-2 py-0.5 text-xs text-secondary-pink">
-                    Music
-                  </span>
+                  {userData?.interests?.slice(0, 2).map((interest) => (
+                    <span
+                      key={interest}
+                      className="inline-block rounded-full bg-primary-purple/10 px-2 py-0.5 text-xs text-primary-purple"
+                    >
+                      {interest}
+                    </span>
+                  ))}
                 </div>
               </div>
             </div>
@@ -90,13 +124,21 @@ export default function WelcomePage() {
         </div>
 
         <Button
-          onClick={() => router.push("/feed")}
+          onClick={handleContinue}
           size="lg"
           className="w-full bg-primary-purple hover:bg-primary-purple/90"
+          disabled={isSubmitting}
         >
-          <span className="flex items-center gap-2">
-            Go to Campus Feed <Rocket className="h-4 w-4" />
-          </span>
+          {isSubmitting ? (
+            <span className="flex items-center gap-2">
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+              Setting up...
+            </span>
+          ) : (
+            <span className="flex items-center gap-2">
+              Go to Campus Feed <Rocket className="h-4 w-4" />
+            </span>
+          )}
         </Button>
       </div>
     </div>

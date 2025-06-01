@@ -1,0 +1,78 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Helper function to check if user is accessing their own data
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Helper function to check if user is a participant
+    function isParticipant() {
+      return isAuthenticated() && 
+        (request.auth.uid in resource.data.participants);
+    }
+
+    // Users collection rules
+    match /users/{userId} {
+      allow read: if isAuthenticated(); // Allow all authenticated users to read profiles
+      allow write, delete: if isOwner(userId); // Allow users to modify and delete their own profile
+      
+      // Allow listing users for features like search
+      allow list: if isAuthenticated();
+    }
+
+    // Posts collection rules
+    match /posts/{postId} {
+      allow read: if isAuthenticated(); // Any authenticated user can read posts
+      allow create: if isAuthenticated(); // Any authenticated user can create posts
+      allow update, delete: if isAuthenticated() && 
+        (resource.data.userId == request.auth.uid); // Only post owner can edit/delete
+    }
+
+    // Confessions collection rules
+    match /confessions/{confessionId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if isAuthenticated() && 
+        (resource.data.userId == request.auth.uid);
+    }
+
+    // Messages collection rules
+    match /messages/{messageId} {
+      allow read: if isAuthenticated() && isParticipant();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && isParticipant();
+      allow delete: if isAuthenticated() && isParticipant();
+    }
+
+    // Comments subcollection rules
+    match /posts/{postId}/comments/{commentId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if isAuthenticated() && 
+        (resource.data.userId == request.auth.uid);
+    }
+
+    // Connections collection rules
+    match /connections/{connectionId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if isAuthenticated() && 
+        (request.auth.uid in resource.data.participants);
+    }
+
+    // Reactions collection rules
+    match /reactions/{reactionId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if isAuthenticated() && 
+        (resource.data.userId == request.auth.uid);
+    }
+  }
+} 

@@ -5,6 +5,9 @@ import { Button } from "@/components/ui/button"
 import { ArrowRight } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { Card } from "@/components/ui/card"
+import { auth, db } from "@/lib/firebase"
+import { doc, updateDoc } from "firebase/firestore"
+import { useAuth } from "@/contexts/auth-context"
 
 type Vibe = {
   emoji: string
@@ -44,17 +47,41 @@ export default function VibeSelectionPage() {
   const router = useRouter()
   const [selectedVibe, setSelectedVibe] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const { refreshUserData } = useAuth()
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     if (!selectedVibe) return
-
     setIsSubmitting(true)
 
-    // Simulate API call
-    setTimeout(() => {
-      setIsSubmitting(false)
+    try {
+      const user = auth.currentUser
+      if (!user) throw new Error("No authenticated user found")
+
+      // Find the full vibe object
+      const selectedVibeObj = vibes.find(v => v.name === selectedVibe)
+      if (!selectedVibeObj) throw new Error("Selected vibe not found")
+
+      // Update user profile in Firestore
+      await updateDoc(doc(db, "users", user.uid), {
+        vibe: {
+          emoji: selectedVibeObj.emoji,
+          name: selectedVibeObj.name
+        },
+        vibeCompleted: true,
+        updatedAt: new Date().toISOString()
+      })
+
+      // Refresh user data in context
+      await refreshUserData()
+
+      // Navigate to next page
       router.push("/onboarding/interests")
-    }, 1000)
+    } catch (error) {
+      console.error("Error updating vibe:", error)
+      // You might want to show an error message to the user here
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
