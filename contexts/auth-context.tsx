@@ -152,7 +152,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const currentUser = auth.currentUser
         if (currentUser) {
           setUser(currentUser)
+          console.log("AuthProvider: Initial currentUser set", currentUser.email)
           await fetchUserData(currentUser)
+          console.log("AuthProvider: Initial userData fetched for", currentUser.email)
         }
         
         const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -161,20 +163,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (now - lastAuthCheck < 2000) return
           lastAuthCheck = now
           
-          console.log("Auth state changed:", user?.email)
+          console.log("AuthProvider: Auth state changed:", user?.email)
           
           if (user) {
             setUser(user)
+            console.log("AuthProvider: User state set to", user.email)
             await fetchUserData(user)
+            console.log("AuthProvider: UserData fetched for", user.email)
           } else {
             setUser(null)
             setUserData(null)
+            console.log("AuthProvider: User state set to null")
             if (!publicRoutes.includes(pathname)) {
               await router.push("/onboarding/login")
             }
           }
           
           setLoading(false)
+          console.log("AuthProvider: Loading set to false")
         })
 
         return () => {
@@ -182,8 +188,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           isInitialized = false
         }
       } catch (error) {
-        console.error("Error initializing auth:", error)
+        console.error("AuthProvider: Error initializing auth:", error)
         setLoading(false)
+        console.log("AuthProvider: Loading set to false on error")
       }
     }
 
