@@ -9,30 +9,36 @@ service cloud.firestore {
     
     // Helper function to check if user is accessing their own data
     function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
+      return request.auth.uid == userId;
     }
 
-    // Helper function to check if user is a participant
-    function isParticipant() {
+    // Helper function to check if user is a participant in a message
+    function isParticipant(participants) {
       return isAuthenticated() && 
-        (request.auth.uid in resource.data.participants);
+        (request.auth.uid in participants);
     }
 
     // Users collection rules
     match /users/{userId} {
-      allow read: if isAuthenticated(); // Allow all authenticated users to read profiles
-      allow write, delete: if isOwner(userId); // Allow users to modify and delete their own profile
+      // Allow reading basic profile info if signed in
+      allow read: if isAuthenticated();
+      // Only allow users to update their own profile
+      allow write, delete: if isOwner(userId);
       
+      // Allow reading user's own private data
+      match /private/{document=**} {
+        allow read, write: if isOwner(userId);
+      }
+
       // Allow listing users for features like search
       allow list: if isAuthenticated();
     }
 
     // Posts collection rules
     match /posts/{postId} {
-      allow read: if isAuthenticated(); // Any authenticated user can read posts
-      allow create: if isAuthenticated(); // Any authenticated user can create posts
-      allow update, delete: if isAuthenticated() && 
-        (resource.data.userId == request.auth.uid); // Only post owner can edit/delete
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
     }
 
     // Confessions collection rules
@@ -45,10 +51,29 @@ service cloud.firestore {
 
     // Messages collection rules
     match /messages/{messageId} {
-      allow read: if isAuthenticated() && isParticipant();
-      allow create: if isAuthenticated();
-      allow update: if isAuthenticated() && isParticipant();
-      allow delete: if isAuthenticated() && isParticipant();
+      function isParticipant() {
+        return request.auth.uid in resource.data.participants;
+      }
+
+      // Allow reading messages if user is a participant
+      allow list: if isAuthenticated();
+      allow get: if isAuthenticated();
+      
+      // Allow creating messages
+      allow create: if isAuthenticated() && 
+        request.resource.data.participants.hasAll([request.auth.uid]);
+      
+      // Allow updating own messages or read status
+      allow update: if isAuthenticated() && (
+        request.auth.uid == resource.data.senderId || 
+        (isParticipant() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']))
+      );
+
+      // Allow deleting messages if user is the sender or a participant
+      allow delete: if isAuthenticated() && (
+        request.auth.uid == resource.data.senderId ||
+        request.auth.uid in resource.data.participants
+      );
     }
 
     // Comments subcollection rules

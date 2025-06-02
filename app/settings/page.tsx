@@ -15,9 +15,10 @@ import { useAuth } from "@/contexts/auth-context"
 import { doc, updateDoc, deleteDoc, collection, query, where, getDocs } from "firebase/firestore"
 import { db, auth } from "@/lib/firebase"
 import { useToast } from "@/components/ui/use-toast"
-import { signOut, deleteUser } from "firebase/auth"
+import { signOut, deleteUser, EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { useRouter } from "next/navigation"
+import { ImageUpload } from "@/components/image-upload"
 
 export default function SettingsPage() {
   const { user, userData, refreshUserData } = useAuth()
@@ -25,6 +26,9 @@ export default function SettingsPage() {
   const router = useRouter()
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [deleteAccountPassword, setDeleteAccountPassword] = useState("")
+  const [deleteError, setDeleteError] = useState("")
 
   const [formData, setFormData] = useState({
     firstName: userData?.firstName || "",
@@ -48,8 +52,6 @@ export default function SettingsPage() {
     showInterests: true,
     allowMessages: "connections",
   })
-
-  const [loading, setLoading] = useState(false)
 
   const handleNotificationToggle = (setting: keyof typeof notificationSettings) => {
     setNotificationSettings({
@@ -169,34 +171,134 @@ export default function SettingsPage() {
 
   const handleDeleteAccount = async () => {
     setIsDeleting(true)
+    setDeleteError("")
+    
     try {
       const user = auth.currentUser
-      if (!user) return
+      if (!user || !user.email) return
 
-      // Delete user's posts
-      const postsQuery = query(collection(db, "posts"), where("userId", "==", user.uid))
-      const postsSnapshot = await getDocs(postsQuery)
-      const deletePromises = postsSnapshot.docs.map(doc => deleteDoc(doc.ref))
-      await Promise.all(deletePromises)
+      // First re-authenticate the user
+      try {
+        const credential = EmailAuthProvider.credential(user.email, deleteAccountPassword)
+        await reauthenticateWithCredential(user, credential)
+      } catch (error: any) {
+        console.error("Re-authentication error:", error)
+        setDeleteError(
+          error.code === "auth/wrong-password" 
+            ? "Incorrect password. Please try again." 
+            : "Failed to verify your identity. Please try again."
+        )
+        setIsDeleting(false)
+        return
+      }
 
-      // Delete user document
-      await deleteDoc(doc(db, "users", user.uid))
+      // Delete user's data in order
+      try {
+        // 1. Delete user's posts and their comments
+        const postsQuery = query(collection(db, "posts"), where("userId", "==", user.uid))
+        const postsSnapshot = await getDocs(postsQuery)
+        
+        for (const postDoc of postsSnapshot.docs) {
+          // Delete comments first
+          const commentsQuery = query(collection(postDoc.ref, "comments"))
+          const commentsSnapshot = await getDocs(commentsQuery)
+          await Promise.all(commentsSnapshot.docs.map(doc => deleteDoc(doc.ref)))
+          
+          // Then delete the post
+          await deleteDoc(postDoc.ref)
+        }
 
-      // Delete Firebase Auth account
-      await deleteUser(user)
+        // 2. Delete user's messages
+        const messagesQuery = query(collection(db, "messages"), where("participants", "array-contains", user.uid))
+        const messagesSnapshot = await getDocs(messagesQuery)
+        await Promise.all(messagesSnapshot.docs.map(doc => deleteDoc(doc.ref)))
 
-      // Redirect to login
-      router.push("/onboarding/login")
-    } catch (error) {
+        // 3. Delete user's reactions
+        const reactionsQuery = query(collection(db, "reactions"), where("userId", "==", user.uid))
+        const reactionsSnapshot = await getDocs(reactionsQuery)
+        await Promise.all(reactionsSnapshot.docs.map(doc => deleteDoc(doc.ref)))
+
+        // 4. Delete user's connections
+        const connectionsQuery = query(collection(db, "connections"), where("participants", "array-contains", user.uid))
+        const connectionsSnapshot = await getDocs(connectionsQuery)
+        await Promise.all(connectionsSnapshot.docs.map(doc => deleteDoc(doc.ref)))
+
+        // 5. Finally delete the user document
+        await deleteDoc(doc(db, "users", user.uid))
+
+        // 6. Delete Firebase Auth account
+        await deleteUser(user)
+
+        // Show success message and redirect
+        toast({
+          title: "Account deleted",
+          description: "Your account has been permanently deleted.",
+        })
+
+        // Redirect to login
+        router.push("/onboarding/login")
+      } catch (error: any) {
+        console.error("Error deleting user data:", error)
+        throw new Error("Failed to delete account data: " + error.message)
+      }
+    } catch (error: any) {
       console.error("Error deleting account:", error)
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to delete account. Please try again.",
+        description: error.message || "Failed to delete account. Please try again.",
       })
     } finally {
       setIsDeleting(false)
       setIsDeleteDialogOpen(false)
+      setDeleteAccountPassword("")
+    }
+  }
+
+  const convertImageToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const base64String = reader.result as string
+        // Check if the base64 string is too large (max 1MB)
+        if (base64String.length > 1024 * 1024) {
+          reject(new Error("Image size too large. Please choose a smaller image."))
+          return
+        }
+        resolve(base64String)
+      }
+      reader.onerror = () => reject(new Error("Failed to read file"))
+      reader.readAsDataURL(file)
+    })
+  }
+
+  const handleImageSelect = async (file: File) => {
+    if (!user) return
+
+    setLoading(true)
+    try {
+      const base64Image = await convertImageToBase64(file)
+      
+      await updateDoc(doc(db, "users", user.uid), {
+        profileImage: base64Image,
+        updatedAt: new Date().toISOString()
+      })
+
+      await refreshUserData()
+
+      toast({
+        title: "Success",
+        description: "Profile picture updated successfully",
+      })
+    } catch (error: any) {
+      console.error("Error updating profile picture:", error)
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to update profile picture",
+      })
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -219,6 +321,20 @@ export default function SettingsPage() {
         </TabsList>
 
         <TabsContent value="account" className="mt-6 space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Profile Picture</CardTitle>
+              <CardDescription>Update your profile picture</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ImageUpload
+                onImageSelect={handleImageSelect}
+                defaultImage={userData?.profileImage}
+                className="mb-4"
+              />
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle>Profile Information</CardTitle>
@@ -358,18 +474,38 @@ export default function SettingsPage() {
                   <DialogContent>
                     <DialogHeader>
                       <DialogTitle>Delete Account</DialogTitle>
-                      <DialogDescription>
-                        Are you sure you want to delete your account? This action cannot be undone and will permanently delete all your data.
+                      <DialogDescription className="space-y-3">
+                        <p>Are you sure you want to delete your account? This action cannot be undone and will permanently delete all your data.</p>
+                        <div className="space-y-2">
+                          <Label htmlFor="deletePassword">Enter your password to confirm</Label>
+                          <Input
+                            id="deletePassword"
+                            type="password"
+                            value={deleteAccountPassword}
+                            onChange={(e) => setDeleteAccountPassword(e.target.value)}
+                            placeholder="Enter your password"
+                          />
+                          {deleteError && (
+                            <p className="text-sm text-destructive">{deleteError}</p>
+                          )}
+                        </div>
                       </DialogDescription>
                     </DialogHeader>
                     <DialogFooter>
-                      <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
+                      <Button 
+                        variant="outline" 
+                        onClick={() => {
+                          setIsDeleteDialogOpen(false)
+                          setDeleteAccountPassword("")
+                          setDeleteError("")
+                        }}
+                      >
                         Cancel
                       </Button>
                       <Button 
                         variant="destructive" 
                         onClick={handleDeleteAccount}
-                        disabled={isDeleting}
+                        disabled={isDeleting || !deleteAccountPassword}
                       >
                         {isDeleting ? (
                           <span className="flex items-center gap-2">

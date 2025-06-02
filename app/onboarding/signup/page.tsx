@@ -12,6 +12,7 @@ import { doc, setDoc } from "firebase/firestore"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { useAuth } from "@/contexts/auth-context"
+import { ImageUpload } from "@/components/image-upload"
 
 export default function SignupPage() {
   const [email, setEmail] = useState("")
@@ -19,6 +20,7 @@ export default function SignupPage() {
   const [confirmPassword, setConfirmPassword] = useState("")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
+  const [profileImage, setProfileImage] = useState<File | null>(null)
   const router = useRouter()
   const { refreshUserData } = useAuth()
 
@@ -29,6 +31,27 @@ export default function SignupPage() {
     // Check for .edu domain
     const domain = email.split("@")[1]
     return domain.toLowerCase().endsWith(".edu")
+  }
+
+  const convertImageToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const base64String = reader.result as string
+        // Check if the base64 string is too large (max 1MB)
+        if (base64String.length > 1024 * 1024) {
+          reject(new Error("Image size too large. Please choose a smaller image."))
+          return
+        }
+        resolve(base64String)
+      }
+      reader.onerror = () => reject(new Error("Failed to read file"))
+      reader.readAsDataURL(file)
+    })
+  }
+
+  const handleImageSelect = (file: File) => {
+    setProfileImage(file)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -66,6 +89,18 @@ export default function SignupPage() {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password)
       const user = userCredential.user
 
+      // Convert profile image to base64 if selected
+      let profileImageData = ""
+      if (profileImage) {
+        try {
+          profileImageData = await convertImageToBase64(profileImage)
+        } catch (error: any) {
+          setError(error.message)
+          setLoading(false)
+          return
+        }
+      }
+
       // Send verification email
       await sendEmailVerification(user)
 
@@ -73,6 +108,7 @@ export default function SignupPage() {
       await setDoc(doc(db, "users", user.uid), {
         email: user.email,
         emailVerified: false,
+        profileImage: profileImageData, // Store base64 string directly in Firestore
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       })
@@ -109,6 +145,11 @@ export default function SignupPage() {
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
             )}
+
+            <ImageUpload
+              onImageSelect={handleImageSelect}
+              className="mb-4"
+            />
             
             <div className="space-y-2">
               <Label htmlFor="email">College Email</Label>

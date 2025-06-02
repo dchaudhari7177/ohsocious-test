@@ -1,350 +1,180 @@
 "use client"
 
-import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ChatList } from "@/components/chat-list"
-import { Plus, Search, Users, ArrowLeft } from "lucide-react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { useState, useEffect } from "react"
+import { UserSearch } from "@/components/user-search"
+import { Card } from "@/components/ui/card"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import Link from "next/link"
+import { useAuth } from "@/contexts/auth-context"
+import { useChat } from "@/contexts/chat-context"
+import { db } from "@/lib/firebase"
+import { collection, query, where, orderBy, getDocs, DocumentData, doc, getDoc, limit } from "firebase/firestore"
+import { useRouter } from "next/navigation"
+import { format } from "date-fns"
+import { useToast } from "@/components/ui/use-toast"
 
-// Sample data for chats
-const directChats = [
-  {
-    id: "1",
-    name: "Emma Wilson",
-    avatar: "/placeholder.svg?height=40&width=40",
-    lastMessage: "Hey, are you coming to the study group tonight?",
-    timestamp: "2 min ago",
-    unread: 2,
-  },
-  {
-    id: "2",
-    name: "James Rodriguez",
-    avatar: "/placeholder.svg?height=40&width=40",
-    lastMessage: "Thanks for sharing your notes!",
-    timestamp: "1 hour ago",
-    unread: 0,
-  },
-  {
-    id: "3",
-    name: "Sophia Chen",
-    avatar: "/placeholder.svg?height=40&width=40",
-    lastMessage: "Did you see the assignment deadline got extended?",
-    timestamp: "3 hours ago",
-    unread: 1,
-  },
-  {
-    id: "4",
-    name: "Marcus Johnson",
-    avatar: "/placeholder.svg?height=40&width=40",
-    lastMessage: "Let me know when you're free to discuss the project",
-    timestamp: "Yesterday",
-    unread: 0,
-  },
-]
-
-const groupChats = [
-  {
-    id: "1",
-    name: "CS Study Group",
-    avatar: "/placeholder.svg?height=40&width=40",
-    lastMessage: "Emma: I'll bring my notes on algorithms",
-    timestamp: "5 min ago",
-    unread: 3,
-    members: 8,
-  },
-  {
-    id: "2",
-    name: "Campus Events Committee",
-    avatar: "/placeholder.svg?height=40&width=40",
-    lastMessage: "James: The venue is confirmed for Friday",
-    timestamp: "2 hours ago",
-    unread: 0,
-    members: 12,
-  },
-  {
-    id: "3",
-    name: "Basketball Team",
-    avatar: "/placeholder.svg?height=40&width=40",
-    lastMessage: "Coach: Practice at 6pm tomorrow",
-    timestamp: "Yesterday",
-    unread: 0,
-    members: 15,
-  },
-]
-
-// Sample data for contacts
-const contacts = [
-  {
-    id: "1",
-    name: "Emma Wilson",
-    avatar: "/placeholder.svg?height=40&width=40",
-    department: "Computer Science",
-  },
-  {
-    id: "2",
-    name: "James Rodriguez",
-    avatar: "/placeholder.svg?height=40&width=40",
-    department: "Business",
-  },
-  {
-    id: "3",
-    name: "Sophia Chen",
-    avatar: "/placeholder.svg?height=40&width=40",
-    department: "Psychology",
-  },
-  {
-    id: "4",
-    name: "Marcus Johnson",
-    avatar: "/placeholder.svg?height=40&width=40",
-    department: "Engineering",
-  },
-  {
-    id: "5",
-    name: "Olivia Martinez",
-    avatar: "/placeholder.svg?height=40&width=40",
-    department: "Art & Design",
-  },
-  {
-    id: "6",
-    name: "Ethan Park",
-    avatar: "/placeholder.svg?height=40&width=40",
-    department: "Computer Science",
-  },
-  {
-    id: "7",
-    name: "Ava Thompson",
-    avatar: "/placeholder.svg?height=40&width=40",
-    department: "Medicine",
-  },
-  {
-    id: "8",
-    name: "Noah Garcia",
-    avatar: "/placeholder.svg?height=40&width=40",
-    department: "Physics",
-  },
-]
+interface RecentChat {
+  userId: string
+  firstName: string
+  lastName: string
+  username: string
+  profileImage?: string
+  lastMessage: string
+  timestamp: Date
+  unread: boolean
+}
 
 export default function ChatPage() {
-  const [activeTab, setActiveTab] = useState("direct")
-  const [searchQuery, setSearchQuery] = useState("")
-  const [newGroupName, setNewGroupName] = useState("")
-  const [selectedContacts, setSelectedContacts] = useState<string[]>([])
+  const [recentChats, setRecentChats] = useState<RecentChat[]>([])
+  const [loading, setLoading] = useState(true)
+  const { user } = useAuth()
+  const { unreadCount } = useChat()
+  const router = useRouter()
+  const { toast } = useToast()
 
-  const filteredDirectChats = directChats.filter((chat) => chat.name.toLowerCase().includes(searchQuery.toLowerCase()))
+  useEffect(() => {
+    const fetchRecentChats = async () => {
+      if (!user) {
+        setLoading(false)
+        return
+      }
 
-  const filteredGroupChats = groupChats.filter((chat) => chat.name.toLowerCase().includes(searchQuery.toLowerCase()))
+      try {
+        // Get recent messages where user is a participant
+        const messagesQuery = query(
+          collection(db, "messages"),
+          where("participants", "array-contains", user.uid),
+          orderBy("timestamp", "desc"),
+          orderBy("__name__", "desc"), // Add this to match the index
+          limit(50) // Fetch more to account for different conversations
+        )
 
-  const filteredContacts = contacts.filter((contact) => contact.name.toLowerCase().includes(searchQuery.toLowerCase()))
+        const messagesSnapshot = await getDocs(messagesQuery)
+        const processedUsers = new Set<string>()
+        const recentChatsMap = new Map<string, RecentChat>()
 
-  const toggleContactSelection = (contactId: string) => {
-    if (selectedContacts.includes(contactId)) {
-      setSelectedContacts(selectedContacts.filter((id) => id !== contactId))
-    } else {
-      setSelectedContacts([...selectedContacts, contactId])
+        for (const messageDoc of messagesSnapshot.docs) {
+          const message = messageDoc.data()
+          if (!message.timestamp) continue // Skip messages without timestamp
+
+          const otherUserId = message.senderId === user.uid ? message.receiverId : message.senderId
+
+          if (!processedUsers.has(otherUserId)) {
+            processedUsers.add(otherUserId)
+
+            try {
+              // Get user details
+              const userDoc = await getDoc(doc(db, "users", otherUserId))
+              
+              if (userDoc.exists()) {
+                const userData = userDoc.data()
+                recentChatsMap.set(otherUserId, {
+                  userId: otherUserId,
+                  firstName: userData.firstName || "",
+                  lastName: userData.lastName || "",
+                  username: userData.username || "",
+                  profileImage: userData.profileImage,
+                  lastMessage: message.content,
+                  timestamp: message.timestamp.toDate(),
+                  unread: !message.read && message.receiverId === user.uid
+                })
+
+                // Break if we have enough recent chats
+                if (recentChatsMap.size >= 10) break
+              }
+            } catch (error) {
+              console.error(`Error fetching user ${otherUserId}:`, error)
+            }
+          }
+        }
+
+        setRecentChats(Array.from(recentChatsMap.values()))
+      } catch (error) {
+        console.error("Error fetching recent chats:", error)
+        toast({
+          variant: "destructive",
+          title: "Error loading chats",
+          description: "Please try refreshing the page."
+        })
+      } finally {
+        setLoading(false)
+      }
     }
-  }
 
-  const createNewGroup = () => {
-    // In a real app, this would create a new group chat
-    console.log("Creating new group:", {
-      name: newGroupName,
-      members: selectedContacts,
-    })
+    fetchRecentChats()
+  }, [user, unreadCount, toast])
 
-    // Reset form
-    setNewGroupName("")
-    setSelectedContacts([])
+  const handleChatSelect = (userId: string) => {
+    router.push(`/chat/${userId}`)
   }
 
   return (
-    <div className="container mx-auto max-w-2xl px-4 py-6">
-      {/* Back Button */}
-      <div className="mb-4 flex items-center gap-2">
-        <Button variant="ghost" size="icon" asChild>
-          <Link href="/feed">
-            <ArrowLeft className="h-5 w-5" />
-          </Link>
-        </Button>
-        <span className="text-lg font-semibold text-gray-700">Messages</span>
+    <div className="container mx-auto max-w-2xl p-4">
+      <h1 className="mb-6 text-2xl font-bold">Messages</h1>
+
+      {/* User Search */}
+      <div className="mb-8">
+        <h2 className="mb-4 text-lg font-semibold">Find People</h2>
+        <UserSearch />
       </div>
 
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Messages</h1>
-          <p className="text-sm text-gray-600">Chat with your campus connections</p>
-        </div>
-
-        <Dialog>
-          <DialogTrigger asChild>
-            <Button className="bg-primary-purple hover:bg-primary-purple/90">
-              <Plus className="mr-2 h-4 w-4" /> New Chat
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>New Conversation</DialogTitle>
-            </DialogHeader>
-            <Tabs defaultValue="direct" className="w-full">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="direct">Direct Message</TabsTrigger>
-                <TabsTrigger value="group">Group Chat</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="direct" className="mt-4 space-y-4">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                  <Input
-                    placeholder="Search contacts..."
-                    className="pl-10"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
+      {/* Recent Chats */}
+      <div>
+        <h2 className="mb-4 text-lg font-semibold">Recent Conversations</h2>
+        {loading ? (
+          <div className="flex justify-center py-4">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary-purple border-t-transparent"></div>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {recentChats.map((chat) => (
+              <Card
+                key={chat.userId}
+                className={`cursor-pointer p-4 transition-colors hover:bg-gray-50 ${
+                  chat.unread ? "bg-gray-50" : ""
+                }`}
+                onClick={() => handleChatSelect(chat.userId)}
+              >
+                <div className="flex items-center gap-3">
+                  <Avatar className="h-10 w-10">
+                    {chat.profileImage ? (
+                      <AvatarImage src={chat.profileImage} alt={`${chat.firstName} ${chat.lastName}`} />
+                    ) : (
+                      <AvatarFallback>
+                        {chat.firstName[0]}
+                        {chat.lastName[0]}
+                      </AvatarFallback>
+                    )}
+                  </Avatar>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-medium">
+                        {chat.firstName} {chat.lastName}
+                      </h3>
+                      <p className="text-sm text-gray-500">
+                        {format(chat.timestamp, "MMM d, h:mm a")}
+                      </p>
+                    </div>
+                    <p className={`text-sm ${chat.unread ? "font-medium text-gray-900" : "text-gray-500"}`}>
+                      {chat.lastMessage.length > 50
+                        ? chat.lastMessage.substring(0, 50) + "..."
+                        : chat.lastMessage}
+                    </p>
+                  </div>
                 </div>
+              </Card>
+            ))}
 
-                <ScrollArea className="h-[300px]">
-                  <div className="space-y-2">
-                    {filteredContacts.map((contact) => (
-                      <Link
-                        key={contact.id}
-                        href={`/chat/${contact.id}`}
-                        className="flex items-center gap-3 rounded-lg p-2 transition-colors hover:bg-gray-100"
-                      >
-                        <Avatar>
-                          <AvatarImage src={contact.avatar || "/placeholder.svg"} alt={contact.name} />
-                          <AvatarFallback>{contact.name.charAt(0)}</AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <p className="font-medium">{contact.name}</p>
-                          <p className="text-xs text-gray-500">{contact.department}</p>
-                        </div>
-                      </Link>
-                    ))}
-                  </div>
-                </ScrollArea>
-              </TabsContent>
-
-              <TabsContent value="group" className="mt-4 space-y-4">
-                <div className="space-y-4">
-                  <div>
-                    <label htmlFor="group-name" className="mb-2 block text-sm font-medium">
-                      Group Name
-                    </label>
-                    <Input
-                      id="group-name"
-                      placeholder="Enter group name"
-                      value={newGroupName}
-                      onChange={(e) => setNewGroupName(e.target.value)}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="mb-2 block text-sm font-medium">Add Members</label>
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                      <Input
-                        placeholder="Search contacts..."
-                        className="pl-10"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                      />
-                    </div>
-                  </div>
-
-                  {selectedContacts.length > 0 && (
-                    <div>
-                      <p className="mb-2 text-sm font-medium">Selected ({selectedContacts.length})</p>
-                      <div className="flex flex-wrap gap-2">
-                        {selectedContacts.map((contactId) => {
-                          const contact = contacts.find((c) => c.id === contactId)
-                          if (!contact) return null
-                          return (
-                            <div
-                              key={contact.id}
-                              className="flex items-center gap-1 rounded-full bg-primary-purple/10 px-3 py-1 text-xs text-primary-purple"
-                            >
-                              {contact.name}
-                              <button
-                                onClick={() => toggleContactSelection(contact.id)}
-                                className="ml-1 rounded-full p-0.5 hover:bg-primary-purple/20"
-                              >
-                                ✕
-                              </button>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  <ScrollArea className="h-[200px]">
-                    <div className="space-y-2">
-                      {filteredContacts.map((contact) => (
-                        <div
-                          key={contact.id}
-                          className="flex items-center gap-3 rounded-lg p-2 transition-colors hover:bg-gray-100"
-                          onClick={() => toggleContactSelection(contact.id)}
-                        >
-                          <div className="flex h-5 w-5 items-center justify-center rounded border border-gray-300 bg-white">
-                            {selectedContacts.includes(contact.id) && (
-                              <div className="h-3 w-3 rounded-sm bg-primary-purple"></div>
-                            )}
-                          </div>
-                          <Avatar>
-                            <AvatarImage src={contact.avatar || "/placeholder.svg"} alt={contact.name} />
-                            <AvatarFallback>{contact.name.charAt(0)}</AvatarFallback>
-                          </Avatar>
-                          <div>
-                            <p className="font-medium">{contact.name}</p>
-                            <p className="text-xs text-gray-500">{contact.department}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </ScrollArea>
-
-                  <Button
-                    className="w-full bg-primary-purple hover:bg-primary-purple/90"
-                    disabled={!newGroupName || selectedContacts.length < 2}
-                    onClick={createNewGroup}
-                  >
-                    <Users className="mr-2 h-4 w-4" /> Create Group Chat
-                  </Button>
-                </div>
-              </TabsContent>
-            </Tabs>
-          </DialogContent>
-        </Dialog>
+            {!loading && recentChats.length === 0 && (
+              <div className="rounded-lg border border-dashed p-8 text-center">
+                <p className="text-gray-500">No recent conversations</p>
+                <p className="mt-1 text-sm text-gray-400">
+                  Use the search above to find people and start chatting
+                </p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
-
-      <div className="mb-4 relative">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-        <Input
-          placeholder="Search messages..."
-          className="pl-10"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-        />
-      </div>
-
-      <Tabs defaultValue="direct" className="w-full" value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="direct">Direct Messages</TabsTrigger>
-          <TabsTrigger value="group">Group Chats</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="direct" className="mt-4">
-          <ChatList chats={filteredDirectChats} type="direct" />
-        </TabsContent>
-
-        <TabsContent value="group" className="mt-4">
-          <ChatList chats={filteredGroupChats} type="group" />
-        </TabsContent>
-      </Tabs>
     </div>
   )
 }

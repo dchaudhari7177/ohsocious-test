@@ -1,7 +1,7 @@
 import { initializeApp, getApps } from "firebase/app"
 import { getAuth, setPersistence, browserLocalPersistence, Auth } from "firebase/auth"
 import { getFirestore, Firestore } from "firebase/firestore"
-import { getStorage } from "firebase/storage"
+import { getStorage, FirebaseStorage } from "firebase/storage"
 
 const firebaseConfig = {
   apiKey: "AIzaSyC0dMgHPLRDli459w4nnh9EtWx_VHQVCE8",
@@ -17,7 +17,7 @@ const firebaseConfig = {
 let app
 let auth: Auth
 let db: Firestore
-let storage
+let storage: FirebaseStorage
 
 try {
   // Initialize or get existing app
