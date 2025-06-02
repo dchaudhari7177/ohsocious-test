@@ -35,7 +35,7 @@ interface User {
   interests?: string[]
 }
 
-export default function DiscoverPage() {
+export default function PeoplePage() {
   const router = useRouter()
   const { user, userData, refreshUserData } = useAuth()
   const [loading, setLoading] = useState(true)
@@ -158,8 +158,8 @@ export default function DiscoverPage() {
     <Container>
       <div className="py-6 md:py-8">
         <PageHeader
-          title="Discover"
-          description="Find and connect with your peers"
+          title="People"
+          description="Connect with your peers"
         />
 
         <div className="mt-6 space-y-6">
@@ -211,4 +211,4 @@ export default function DiscoverPage() {
       </div>
     </Container>
   )
-}
+} 

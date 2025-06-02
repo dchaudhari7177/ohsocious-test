@@ -2,212 +2,258 @@
 
 import { useEffect, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { useAuth } from "@/contexts/auth-context"
-import { doc, getDoc } from "firebase/firestore"
-import { db } from "@/lib/firebase"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Container } from "@/components/ui/container"
+import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Card } from "@/components/ui/card"
-import { MessageCircle, ArrowLeft } from "lucide-react"
-import Link from "next/link"
+import { useAuth } from "@/contexts/auth-context"
+import { db } from "@/lib/firebase"
+import {
+  doc,
+  getDoc,
+  updateDoc,
+  arrayUnion,
+  arrayRemove,
+  collection,
+  query,
+  where,
+  getDocs,
+  addDoc,
+  serverTimestamp,
+} from "firebase/firestore"
+import { Loader2, UserPlus, MessageCircle } from "lucide-react"
+import { cn } from "@/lib/utils"
 
-interface ProfileData {
+interface UserProfile {
   firstName: string
   lastName: string
-  username: string
   department: string
   year: string
-  bio: string
+  bio?: string
   profileImage?: string
+  coverImage?: string
   vibe?: { emoji: string; name: string }
   interests?: string[]
-  connectionsCount?: number
+  following?: string[]
+  followers?: string[]
 }
 
 export default function ProfilePage() {
-  const { userId } = useParams()
-  const { user: currentUser } = useAuth()
-  const [profileData, setProfileData] = useState<ProfileData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const params = useParams()
+  const userId = typeof params.userId === "string" ? params.userId : null
   const router = useRouter()
+  const { user, userData, refreshUserData } = useAuth()
+  const [loading, setLoading] = useState(true)
+  const [profile, setProfile] = useState<UserProfile | null>(null)
 
   useEffect(() => {
-    const fetchProfileData = async () => {
-      if (!userId || typeof userId !== "string") {
-        setError("Invalid profile")
-        setLoading(false)
-        return
-      }
+    const fetchProfile = async () => {
+      if (!userId) return
 
       try {
         const userDoc = await getDoc(doc(db, "users", userId))
-        if (!userDoc.exists()) {
-          setError("Profile not found")
-          setLoading(false)
-          return
+        if (userDoc.exists()) {
+          setProfile(userDoc.data() as UserProfile)
         }
-
-        const data = userDoc.data()
-        setProfileData({
-          firstName: data.firstName || "",
-          lastName: data.lastName || "",
-          username: data.username || "",
-          department: data.department || "",
-          year: data.year || "",
-          bio: data.bio || "",
-          profileImage: data.profileImage,
-          vibe: data.vibe,
-          interests: data.interests || [],
-          connectionsCount: data.connectionsCount || 0
-        })
       } catch (error) {
         console.error("Error fetching profile:", error)
-        setError("Failed to load profile")
       } finally {
         setLoading(false)
       }
     }
 
-    fetchProfileData()
+    fetchProfile()
   }, [userId])
 
-  const handleMessage = () => {
-    if (userId && typeof userId === "string") {
-      router.push(`/chat/${userId}`)
+  const handleFollow = async () => {
+    if (!user || !profile || !userId) return
+
+    try {
+      const isFollowing = userData?.following?.includes(userId)
+      const userRef = doc(db, "users", user.uid)
+
+      await updateDoc(userRef, {
+        following: isFollowing ? arrayRemove(userId) : arrayUnion(userId),
+      })
+
+      const otherUserRef = doc(db, "users", userId)
+      await updateDoc(otherUserRef, {
+        followers: isFollowing ? arrayRemove(user.uid) : arrayUnion(user.uid),
+      })
+
+      await refreshUserData()
+    } catch (error) {
+      console.error("Error updating follow status:", error)
     }
   }
 
+  const handleStartChat = async () => {
+    if (!user || !userId) return
+
+    try {
+      const chatsQuery = query(
+        collection(db, "chats"),
+        where("participants", "array-contains", user.uid)
+      )
+      const snapshot = await getDocs(chatsQuery)
+      const existingChat = snapshot.docs.find((doc) => {
+        const data = doc.data()
+        return data.participants.includes(userId)
+      })
+
+      if (existingChat) {
+        router.push(`/chat?id=${existingChat.id}`)
+        return
+      }
+
+      const chatRef = await addDoc(collection(db, "chats"), {
+        participants: [user.uid, userId],
+        lastMessage: "",
+        timestamp: serverTimestamp(),
+        unreadCount: 0,
+      })
+
+      router.push(`/chat?id=${chatRef.id}`)
+    } catch (error) {
+      console.error("Error starting chat:", error)
+    }
+  }
+
+  if (!user || !userData) return null
+
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary-purple border-t-transparent"></div>
-      </div>
-    )
-  }
-
-  if (error || !profileData) {
-    return (
-      <div className="container mx-auto max-w-2xl px-4 py-6">
-        <div className="mb-6 flex items-center gap-2">
-          <Button variant="ghost" size="icon" asChild>
-            <Link href="/feed">
-              <ArrowLeft className="h-5 w-5" />
-            </Link>
-          </Button>
+      <Container>
+        <div className="flex justify-center py-8">
+          <Loader2 className="h-8 w-8 animate-spin text-primary-purple" />
         </div>
-        <Card className="p-8 text-center">
-          <h2 className="text-xl font-semibold text-gray-900">{error}</h2>
-          <p className="mt-2 text-gray-500">The profile you're looking for doesn't exist or you don't have permission to view it.</p>
-          <Button className="mt-4" asChild>
-            <Link href="/feed">Return to Feed</Link>
-          </Button>
-        </Card>
-      </div>
+      </Container>
     )
   }
 
-  const isOwnProfile = currentUser?.uid === userId
+  if (!profile || !userId) {
+    return (
+      <Container>
+        <div className="py-8 text-center">
+          <h2 className="text-lg font-semibold">User not found</h2>
+          <p className="mt-2 text-gray-500">This user profile does not exist.</p>
+        </div>
+      </Container>
+    )
+  }
+
+  const isFollowing = userData.following?.includes(userId)
+  const fullName = `${profile.firstName} ${profile.lastName}`
+  const initials = fullName
+    .split(" ")
+    .map((n) => n[0])
+    .join("")
 
   return (
-    <div className="container mx-auto max-w-2xl px-4 py-6">
-      <div className="mb-6 flex items-center gap-2">
-        <Button variant="ghost" size="icon" asChild>
-          <Link href="/feed">
-            <ArrowLeft className="h-5 w-5" />
-          </Link>
-        </Button>
-      </div>
+    <Container>
+      <div className="py-6 md:py-8">
+        <div className="relative mb-6 h-48 overflow-hidden rounded-lg bg-gray-100">
+          {profile.coverImage ? (
+            <img
+              src={profile.coverImage}
+              alt="Cover"
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <div className="h-full w-full bg-gradient-to-r from-primary-purple/20 to-primary-purple/10" />
+          )}
+        </div>
 
-      <Card className="overflow-hidden">
-        {/* Profile Header */}
-        <div className="relative h-32 bg-gradient-to-r from-primary-purple/20 to-primary-purple/10">
-          <div className="absolute -bottom-12 left-4">
-            <Avatar className="h-24 w-24 border-4 border-white">
-              {profileData.profileImage ? (
-                <AvatarImage src={profileData.profileImage} alt={`${profileData.firstName} ${profileData.lastName}`} />
+        <div className="relative z-10 -mt-16 px-4">
+          <div className="flex flex-col items-center">
+            <Avatar className="h-32 w-32 border-4 border-white">
+              {profile.profileImage ? (
+                <AvatarImage src={profile.profileImage} alt={fullName} />
               ) : (
-                <AvatarFallback>
-                  {profileData.firstName[0]}
-                  {profileData.lastName[0]}
-                </AvatarFallback>
+                <AvatarFallback className="text-2xl">{initials}</AvatarFallback>
               )}
             </Avatar>
-          </div>
-          {!isOwnProfile && (
-            <div className="absolute right-4 top-4">
-              <Button onClick={handleMessage}>
-                <MessageCircle className="mr-2 h-4 w-4" />
-                Message
-              </Button>
-            </div>
-          )}
-        </div>
-
-        {/* Profile Info */}
-        <div className="px-4 pb-6 pt-16">
-          <div className="mb-4">
-            <h1 className="text-2xl font-bold">
-              {profileData.firstName} {profileData.lastName}
-            </h1>
-            <p className="text-gray-500">@{profileData.username}</p>
+            <h1 className="mt-4 text-2xl font-bold">{fullName}</h1>
+            <p className="text-gray-500">
+              {profile.department} • {profile.year}
+            </p>
           </div>
 
-          <div className="mb-6 space-y-2">
-            <p className="text-gray-600">{profileData.bio}</p>
-            <div className="flex items-center gap-2 text-sm text-gray-500">
-              <span>{profileData.department}</span>
-              <span>•</span>
-              <span>{profileData.year}</span>
-            </div>
+          <div className="mt-6 flex justify-center gap-4">
+            <Button
+              variant={isFollowing ? "outline" : "default"}
+              onClick={handleFollow}
+              className={cn(
+                "flex items-center gap-1",
+                isFollowing && "hover:bg-destructive hover:text-white"
+              )}
+            >
+              <UserPlus className="h-4 w-4" />
+              {isFollowing ? "Unfollow" : "Follow"}
+            </Button>
+            <Button variant="outline" onClick={handleStartChat}>
+              <MessageCircle className="mr-1 h-4 w-4" />
+              Message
+            </Button>
           </div>
 
-          {/* Vibe */}
-          {profileData.vibe && (
-            <div className="mb-6">
-              <h2 className="mb-2 font-semibold">Current Vibe</h2>
-              <div className="flex items-center gap-2">
-                <span className="text-2xl">{profileData.vibe.emoji}</span>
-                <span>{profileData.vibe.name}</span>
+          <div className="mt-8 grid gap-6">
+            <Card className="p-6">
+              <h2 className="mb-4 text-lg font-semibold">About</h2>
+              {profile.bio ? (
+                <p className="text-gray-600">{profile.bio}</p>
+              ) : (
+                <p className="text-gray-500">No bio available</p>
+              )}
+            </Card>
+
+            {profile.vibe && (
+              <Card className="p-6">
+                <h2 className="mb-4 text-lg font-semibold">Current Vibe</h2>
+                <p className="flex items-center text-lg">
+                  <span className="mr-2">{profile.vibe.emoji}</span>
+                  {profile.vibe.name}
+                </p>
+              </Card>
+            )}
+
+            {profile.interests && profile.interests.length > 0 && (
+              <Card className="p-6">
+                <h2 className="mb-4 text-lg font-semibold">Interests</h2>
+                <div className="flex flex-wrap gap-2">
+                  {profile.interests.map((interest, index) => (
+                    <span
+                      key={index}
+                      className="rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-600"
+                    >
+                      {interest}
+                    </span>
+                  ))}
+                </div>
+              </Card>
+            )}
+
+            <Card className="p-6">
+              <h2 className="mb-4 text-lg font-semibold">Network</h2>
+              <div className="grid grid-cols-2 gap-4 text-center">
+                <div>
+                  <p className="text-2xl font-semibold">
+                    {profile.followers?.length || 0}
+                  </p>
+                  <p className="text-sm text-gray-500">Followers</p>
+                </div>
+                <div>
+                  <p className="text-2xl font-semibold">
+                    {profile.following?.length || 0}
+                  </p>
+                  <p className="text-sm text-gray-500">Following</p>
+                </div>
               </div>
-            </div>
-          )}
-
-          {/* Interests */}
-          {profileData.interests && profileData.interests.length > 0 && (
-            <div className="mb-6">
-              <h2 className="mb-2 font-semibold">Interests</h2>
-              <div className="flex flex-wrap gap-2">
-                {profileData.interests.map((interest, index) => (
-                  <span
-                    key={index}
-                    className="rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700"
-                  >
-                    {interest}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Stats */}
-          <div className="flex items-center gap-4 text-sm text-gray-500">
-            <div>
-              <span className="font-semibold text-gray-900">{profileData.connectionsCount}</span>{" "}
-              connections
-            </div>
+            </Card>
           </div>
-
-          {/* Actions */}
-          {isOwnProfile && (
-            <div className="mt-6">
-              <Button variant="outline" className="w-full" asChild>
-                <Link href="/settings">Edit Profile</Link>
-              </Button>
-            </div>
-          )}
         </div>
-      </Card>
-    </div>
+      </div>
+    </Container>
   )
 } 

@@ -12,7 +12,15 @@ service cloud.firestore {
       return request.auth.uid == userId;
     }
 
-    // Helper function to check if user is a participant in a message
+    // Helper function to check if only following/followers arrays are being modified
+    function isFollowOperation() {
+      let affectedKeys = request.resource.data.diff(resource.data).affectedKeys();
+      return affectedKeys.hasOnly(['following', 'followers']) ||
+             affectedKeys.hasOnly(['following']) ||
+             affectedKeys.hasOnly(['followers']);
+    }
+
+    // Helper function to check if user is a participant in a chat
     function isParticipant(participants) {
       return isAuthenticated() && 
         (request.auth.uid in participants);
@@ -22,8 +30,15 @@ service cloud.firestore {
     match /users/{userId} {
       // Allow reading basic profile info if signed in
       allow read: if isAuthenticated();
-      // Only allow users to update their own profile
+      
+      // Allow users to update their own profile completely
       allow write, delete: if isOwner(userId);
+      
+      // Allow updating following/followers arrays for social connections
+      allow update: if isAuthenticated() && (
+        isOwner(userId) || // User can update their own document
+        isFollowOperation() // Or update following/followers arrays only
+      );
       
       // Allow reading user's own private data
       match /private/{document=**} {
@@ -49,31 +64,44 @@ service cloud.firestore {
         (resource.data.userId == request.auth.uid);
     }
 
+    // Chats collection rules
+    match /chats/{chatId} {
+      // Allow reading chats if user is a participant
+      allow read: if isAuthenticated() && 
+        (resource.data.participants.hasAny([request.auth.uid]));
+      
+      // Allow creating chats if user is a participant
+      allow create: if isAuthenticated() && 
+        request.resource.data.participants.hasAny([request.auth.uid]);
+      
+      // Allow updating chats if user is a participant
+      allow update: if isAuthenticated() && 
+        resource.data.participants.hasAny([request.auth.uid]);
+      
+      // Allow deleting chats if user is a participant
+      allow delete: if isAuthenticated() && 
+        resource.data.participants.hasAny([request.auth.uid]);
+    }
+
     // Messages collection rules
     match /messages/{messageId} {
-      function isParticipant() {
-        return request.auth.uid in resource.data.participants;
-      }
-
-      // Allow reading messages if user is a participant
-      allow list: if isAuthenticated();
-      allow get: if isAuthenticated();
+      // Allow reading messages if user is a participant in the chat
+      allow read: if isAuthenticated() && 
+        exists(/databases/$(database)/documents/chats/$(resource.data.chatId)) && 
+        get(/databases/$(database)/documents/chats/$(resource.data.chatId)).data.participants.hasAny([request.auth.uid]);
       
-      // Allow creating messages
+      // Allow creating messages if user is a participant in the chat
       allow create: if isAuthenticated() && 
-        request.resource.data.participants.hasAll([request.auth.uid]);
+        exists(/databases/$(database)/documents/chats/$(request.resource.data.chatId)) && 
+        get(/databases/$(database)/documents/chats/$(request.resource.data.chatId)).data.participants.hasAny([request.auth.uid]);
       
-      // Allow updating own messages or read status
-      allow update: if isAuthenticated() && (
-        request.auth.uid == resource.data.senderId || 
-        (isParticipant() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']))
-      );
-
-      // Allow deleting messages if user is the sender or a participant
-      allow delete: if isAuthenticated() && (
-        request.auth.uid == resource.data.senderId ||
-        request.auth.uid in resource.data.participants
-      );
+      // Allow updating messages if user is the sender
+      allow update: if isAuthenticated() && 
+        resource.data.senderId == request.auth.uid;
+      
+      // Allow deleting messages if user is the sender
+      allow delete: if isAuthenticated() && 
+        resource.data.senderId == request.auth.uid;
     }
 
     // Comments subcollection rules

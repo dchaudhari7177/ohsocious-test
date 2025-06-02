@@ -1,405 +1,235 @@
 "use client"
+
 import { useState } from "react"
-import { PostCard } from "@/components/post-card"
+import { Container } from "@/components/ui/container"
+import { PageHeader } from "@/components/page-header"
+import { CardGrid } from "@/components/card-grid"
+import { PostCard, Post } from "@/components/post-card"
 import { Button } from "@/components/ui/button"
-import { Plus, X } from "lucide-react"
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { Card } from "@/components/ui/card"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useAuth } from "@/contexts/auth-context"
+import { db } from "@/lib/firebase"
+import { collection, query, where, orderBy, limit, getDocs, Timestamp } from "firebase/firestore"
+import { Loader2, Users, Sparkles } from "lucide-react"
+import { UserCard } from "@/components/user-card"
+import { useInfiniteScroll } from "@/hooks/use-infinite-scroll"
 
-// Sample post data
-const initialPosts: Post[] = [
-  {
-    id: "1",
-    type: "normal",
-    user: {
-      name: "Alex Johnson",
-      avatar: "/placeholder.svg?height=40&width=40",
-      department: "Computer Science",
-    },
-    content: "Just aced my algorithms exam! Anyone want to celebrate at the campus coffee shop later? #CSLife",
-    image: "/placeholder.svg?height=300&width=500",
-    timestamp: "2 hours ago",
-    reactions: {
-      "🔥": 24,
-      "😂": 5,
-      "❤️": 18,
-      "🫶": 7,
-      "👍": 0,
-      "🎉": 0,
-      "🤔": 0,
-      "😮": 0,
-    },
-    comments: [
-      {
-        id: "c1",
-        user: {
-          name: "Jane Doe",
-          avatar: "/placeholder.svg?height=40&width=40",
-          department: "Math",
-        },
-        content: "Great post!",
-        timestamp: "1 hour ago",
-      }
-    ],
-    isBookmarked: false,
-    isOwn: false,
-    reported: false,
-  },
-  {
-    id: "2",
-    type: "confession",
-    anonymousAvatar: "👻",
-    anonymousName: "Mystery Maven",
-    content:
-      "I've been pretending to understand quantum physics all semester but I'm completely lost. Anyone else feeling the same? 😅",
-    timestamp: "3 hours ago",
-    reactions: {
-      "🔥": 45,
-      "😂": 67,
-      "❤️": 12,
-      "🫶": 8,
-      "👍": 0,
-      "🎉": 0,
-      "🤔": 0,
-      "😮": 0,
-    },
-    comments: [],
-    isBookmarked: false,
-    isOwn: false,
-    reported: false,
-  },
-  {
-    id: "3",
-    type: "poll",
-    user: {
-      name: "Taylor Smith",
-      avatar: "/placeholder.svg?height=40&width=40",
-      department: "Business",
-    },
-    content: "Best study spot on campus?",
-    options: [
-      { text: "Library 3rd floor", votes: 45 },
-      { text: "Student Union", votes: 28 },
-      { text: "Coffee shop", votes: 67 },
-      { text: "Outdoors by the lake", votes: 34 },
-    ],
-    timestamp: "5 hours ago",
-    reactions: {
-      "🔥": 12,
-      "😂": 3,
-      "❤️": 8,
-      "🫶": 2,
-      "👍": 0,
-      "🎉": 0,
-      "🤔": 0,
-      "😮": 0,
-    },
-    comments: [],
-    isBookmarked: false,
-    isOwn: false,
-    reported: false,
-  },
-  {
-    id: "4",
-    type: "normal",
-    user: {
-      name: "Jordan Lee",
-      avatar: "/placeholder.svg?height=40&width=40",
-      department: "Art & Design",
-    },
-    content:
-      "Just finished my final project for digital media class! So proud of how it turned out. Check it out and let me know what you think!",
-    image: "/placeholder.svg?height=300&width=500",
-    timestamp: "6 hours ago",
-    reactions: {
-      "🔥": 56,
-      "😂": 2,
-      "❤️": 89,
-      "🫶": 23,
-      "👍": 0,
-      "🎉": 0,
-      "🤔": 0,
-      "😮": 0,
-    },
-    comments: [],
-    isBookmarked: false,
-    isOwn: false,
-    reported: false,
-  },
-]
-
-type ReactionType = "🔥" | "😂" | "❤️" | "🫶" | "👍" | "🎉" | "🤔" | "😮"
-
-type Comment = {
-  id: string
-  user: {
-    name: string
-    avatar: string
-    department: string
-  }
-  content: string
-  timestamp: string
-  replies?: Comment[]
-}
-
-type Post = {
-  id: string
-  type: "normal" | "confession" | "poll"
-  user?: {
-    name: string
-    avatar: string
-    department: string
-  }
-  anonymousAvatar?: string
-  anonymousName?: string
-  content: string
-  image?: string
-  timestamp: string
-  reactions: Record<ReactionType, number>
-  comments: Comment[]
-  options?: Array<{
-    text: string
-    votes: number
-  }>
-  isBookmarked?: boolean
-  isOwn?: boolean
-  reported?: boolean
+interface UserData {
+  following?: string[]
 }
 
 export default function FeedPage() {
-  const [posts, setPosts] = useState<Post[]>(initialPosts)
-  const [showModal, setShowModal] = useState(false)
-  const [newPost, setNewPost] = useState("")
-  const [isPosting, setIsPosting] = useState(false)
-  const [userReactions, setUserReactions] = useState<Record<string, ReactionType>>({})
+  const { user, userData } = useAuth()
+  const [activeTab, setActiveTab] = useState<"all" | "following">("all")
+  const [loading, setLoading] = useState(false)
 
-  // Animation: fade-in for posts
-  // (CSS only, using transition-opacity and a key)
+  const fetchPosts = async ({ pageParam = null }: { pageParam?: Timestamp | null }) => {
+    if (!user) return { items: [], nextCursor: null }
 
-  // Modal handlers
-  const openModal = () => setShowModal(true)
-  const closeModal = () => {
-    setShowModal(false)
-    setNewPost("")
-  }
-  const handleCreatePost = () => {
-    if (!newPost.trim()) return
-    setIsPosting(true)
-    setTimeout(() => {
-      setPosts([
-        {
-          id: Date.now().toString(),
-          type: "normal" as const,
-          user: {
-            name: "You",
-            avatar: "/placeholder.svg?height=40&width=40",
-            department: "Your Department",
-          },
-          content: newPost,
-          image: "",
-          timestamp: "Just now",
-          reactions: {
-            "🔥": 0,
-            "😂": 0,
-            "❤️": 0,
-            "🫶": 0,
-            "👍": 0,
-            "🎉": 0,
-            "🤔": 0,
-            "😮": 0
-          },
-          comments: [],
-          isBookmarked: false,
-          isOwn: true,
-          reported: false,
-        },
-        ...posts,
-      ])
-      setIsPosting(false)
-      closeModal()
-    }, 700)
-  }
+    let postsQuery = query(
+      collection(db, "posts"),
+      orderBy("createdAt", "desc"),
+      limit(10)
+    )
 
-  const handleReaction = (postId: string, emoji: ReactionType) => {
-    setPosts(posts.map(post => {
-      if (post.id === postId) {
-        const currentReaction = userReactions[postId]
-        const reactions = { ...post.reactions }
-        
-        // Remove previous reaction if exists
-        if (currentReaction) {
-          reactions[currentReaction] = Math.max(0, (reactions[currentReaction] || 0) - 1)
-        }
-        
-        // Add new reaction if different from current
-        if (currentReaction !== emoji) {
-          reactions[emoji] = (reactions[emoji] || 0) + 1
-          setUserReactions(prev => ({ ...prev, [postId]: emoji }))
-        } else {
-          // Remove reaction if clicking the same emoji
-          setUserReactions(prev => {
-            const newReactions = { ...prev }
-            delete newReactions[postId]
-            return newReactions
-          })
-        }
-        
-        return { ...post, reactions }
-      }
-      return post
-    }))
-  }
+    if (activeTab === "following" && (userData as UserData)?.following?.length) {
+      postsQuery = query(
+        collection(db, "posts"),
+        where("userId", "in", (userData as UserData).following),
+        orderBy("createdAt", "desc"),
+        limit(10)
+      )
+    }
 
-  const handleReport = (postId: string) => {
-    setPosts(posts.map(post => {
-      if (post.id === postId) {
-        return { ...post, reported: true }
-      }
-      return post
-    }))
-  }
+    if (pageParam) {
+      postsQuery = query(
+        postsQuery,
+        where("createdAt", "<", pageParam)
+      )
+    }
 
-  const handleDelete = (postId: string) => {
-    setPosts(posts.filter(post => post.id !== postId))
-  }
+    const snapshot = await getDocs(postsQuery)
+    const items = await Promise.all(
+      snapshot.docs.map(async (doc) => {
+        const data = doc.data()
+        const userDoc = await getDocs(query(collection(db, "users"), where("userId", "==", data.userId)))
+        const userData = userDoc.docs[0]?.data()
 
-  const handleComment = (postId: string, comment: string) => {
-    setPosts(posts => posts.map(post => {
-      if (post.id === postId) {
         return {
-          ...post,
-          comments: [
-            ...post.comments,
-            {
-              id: Date.now().toString(),
-              user: {
-                name: "You",
-                avatar: "/placeholder.svg?height=40&width=40",
-                department: "Your Department",
-              },
-              content: comment,
-              timestamp: "Just now",
-            },
-          ],
-        }
-      }
-      return post
-    }))
+          id: doc.id,
+          userId: data.userId,
+          content: data.content,
+          createdAt: data.createdAt,
+          image: data.image,
+          likes: data.likes || 0,
+          comments: data.comments || 0,
+          type: data.type || "normal",
+          reactions: data.reactions || {},
+          timestamp: data.createdAt?.toDate()?.toLocaleString() || "",
+          user: userData ? {
+            name: `${userData.firstName} ${userData.lastName}`,
+            avatar: userData.profileImage || "",
+            department: userData.department || "",
+          } : undefined,
+          anonymousName: data.type === "confession" ? "Anonymous" : undefined,
+          anonymousAvatar: data.type === "confession" ? "👻" : undefined,
+        } as Post
+      })
+    )
+
+    const lastItem = items[items.length - 1]
+    const nextCursor = lastItem?.createdAt || null
+
+    return { items, nextCursor }
   }
 
-  const handleReply = (postId: string, commentId: string, reply: string) => {
-    setPosts(posts => posts.map(post => {
-      if (post.id === postId) {
-        return {
-          ...post,
-          comments: post.comments.map(comment => {
-            if (comment.id === commentId) {
-              return {
-                ...comment,
-                replies: [
-                  ...(comment.replies || []),
-                  {
-                    id: Date.now().toString(),
-                    user: {
-                      name: "You",
-                      avatar: "/placeholder.svg?height=40&width=40",
-                      department: "Your Department",
-                    },
-                    content: reply,
-                    timestamp: "Just now",
-                  },
-                ],
-              }
-            }
-            return comment
-          })
-        }
-      }
-      return post
-    }))
+  const {
+    data,
+    isLoading,
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage
+  } = useInfiniteScroll<Post>(fetchPosts)
+
+  const handleTabChange = (value: string) => {
+    if (value === "all" || value === "following") {
+      setActiveTab(value)
+    }
+  }
+
+  const handleLike = async (postId: string) => {
+    // Implement like functionality
+  }
+
+  const handleComment = async (postId: string) => {
+    // Implement comment functionality
+  }
+
+  const handleShare = async (postId: string) => {
+    // Implement share functionality
   }
 
   return (
-    <div className="relative min-h-screen w-full bg-gradient-to-br from-white via-blue-50 to-purple-50 pb-20">
-      {/* Floating Create Post Button */}
-      <Button
-        className="fixed bottom-6 right-6 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-primary-purple shadow-lg hover:bg-primary-purple/90 sm:static sm:top-16 sm:mx-auto sm:mb-4 sm:w-auto sm:max-w-xs sm:rounded-md sm:gap-2"
-        aria-label="Create Post"
-        onClick={openModal}
-      >
-        <Plus className="h-6 w-6 sm:h-4 sm:w-4" />
-        <span className="hidden sm:inline">Create Post</span>
-      </Button>
-
-      {/* Modal for Creating Post */}
-      <Dialog open={showModal} onOpenChange={closeModal}>
-        <DialogContent>
-          <DialogTitle>Create a Post</DialogTitle>
-          <textarea
-            className="w-full resize-none rounded border border-gray-200 p-2 focus:border-primary-purple focus:outline-none"
-            rows={4}
-            placeholder="What's on your mind?"
-            value={newPost}
-            onChange={e => setNewPost(e.target.value)}
-            disabled={isPosting}
-            aria-label="Post content"
+    <Container>
+      <div className="flex flex-col gap-6 py-6 md:flex-row md:gap-8 md:py-8">
+        {/* Main Content */}
+        <div className="flex-1 space-y-6">
+          <PageHeader
+            title="Campus Feed"
+            description="See what's happening on campus"
           />
-          <div className="mt-4 flex justify-end gap-2">
-            <Button variant="outline" onClick={closeModal} disabled={isPosting}>
-              Cancel
-            </Button>
-            <Button
-              className="bg-primary-purple hover:bg-primary-purple/90"
-              onClick={handleCreatePost}
-              disabled={!newPost.trim() || isPosting}
-            >
-              {isPosting ? "Posting..." : "Post"}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
 
-      <div className="mx-auto max-w-2xl space-y-4 pt-8">
-        {/* Empty State */}
-        {posts.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center text-gray-400">
-            <Plus className="mb-2 h-10 w-10" />
-            <p className="text-lg font-semibold">No posts yet</p>
-            <p className="mb-4 text-sm">Be the first to share something with your campus!</p>
-            <Button className="bg-primary-purple hover:bg-primary-purple/90" onClick={openModal}>
-              <Plus className="mr-2 h-4 w-4" /> Create Post
-            </Button>
-          </div>
-        ) : (
-      <div className="space-y-4">
-            {posts.map((post, idx) => (
-              <div
-                key={post.id}
-                className="animate-fade-in"
-                style={{ animationDelay: `${idx * 60}ms` }}
-              >
-                <PostCard 
-                  post={post} 
-                  onReact={handleReaction}
-                  onReport={handleReport}
-                  onDelete={handleDelete}
-                  onComment={handleComment}
-                  onReply={handleReply}
+          <Tabs value={activeTab} onValueChange={handleTabChange}>
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="all" className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4" />
+                All Posts
+              </TabsTrigger>
+              <TabsTrigger value="following" className="flex items-center gap-2">
+                <Users className="h-4 w-4" />
+                Following
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+
+          {isLoading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-primary-purple" />
+            </div>
+          ) : data.pages[0].items.length === 0 ? (
+            <Card className="flex flex-col items-center justify-center p-8 text-center">
+              <h3 className="text-lg font-semibold">No posts yet</h3>
+              <p className="text-sm text-gray-500">
+                {activeTab === "following"
+                  ? "Follow more people to see their posts here"
+                  : "Be the first to post something!"}
+              </p>
+            </Card>
+          ) : (
+            <div className="space-y-4">
+              {data.pages.map((page, pageIndex) => (
+                <div key={pageIndex} className="space-y-4">
+                  {page.items.map((post) => (
+                    <PostCard
+                      key={post.id}
+                      post={post}
+                      onLike={handleLike}
+                      onComment={handleComment}
+                      onShare={handleShare}
+                    />
+                  ))}
+                </div>
+              ))}
+              {hasNextPage && (
+                <div className="flex justify-center pt-4">
+                  <Button
+                    variant="outline"
+                    onClick={() => fetchNextPage()}
+                    disabled={isFetchingNextPage}
+                  >
+                    {isFetchingNextPage ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Loading...
+                      </>
+                    ) : (
+                      "Load More"
+                    )}
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Sidebar */}
+        <div className="w-full md:w-80 lg:w-96">
+          <div className="space-y-6">
+            <Card className="p-6">
+              <h3 className="mb-4 text-lg font-semibold">Suggested People</h3>
+              <div className="space-y-4">
+                <UserCard
+                  name="John Doe"
+                  department="Computer Science"
+                  year="Senior"
+                  imageSrc="/placeholder.jpg"
+                />
+                <UserCard
+                  name="Jane Smith"
+                  department="Business"
+                  year="Junior"
+                  imageSrc="/placeholder.jpg"
+                />
+                <UserCard
+                  name="Mike Johnson"
+                  department="Engineering"
+                  year="Sophomore"
+                  imageSrc="/placeholder.jpg"
                 />
               </div>
-        ))}
+              <Button variant="link" className="mt-4 w-full">
+                See More
+              </Button>
+            </Card>
+
+            <Card className="p-6">
+              <h3 className="mb-4 text-lg font-semibold">Trending Topics</h3>
+              <div className="space-y-2">
+                <Button variant="ghost" className="w-full justify-start">
+                  #CampusLife
+                </Button>
+                <Button variant="ghost" className="w-full justify-start">
+                  #StudyGroup
+                </Button>
+                <Button variant="ghost" className="w-full justify-start">
+                  #Finals
+                </Button>
+              </div>
+            </Card>
           </div>
-        )}
+        </div>
       </div>
-      {/* Fade-in animation keyframes */}
-      <style jsx global>{`
-        @keyframes fade-in {
-          from { opacity: 0; transform: translateY(20px); }
-          to { opacity: 1; transform: none; }
-        }
-        .animate-fade-in {
-          animation: fade-in 0.5s both;
-        }
-      `}</style>
-    </div>
+    </Container>
   )
 }

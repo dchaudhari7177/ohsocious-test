@@ -16,6 +16,8 @@ interface UserData {
   coverImage?: string
   vibe?: { emoji: string; name: string }
   interests?: string[]
+  following?: string[]
+  followers?: string[]
   connectionsCount?: number
   emailVerified: boolean
   createdAt: string

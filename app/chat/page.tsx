@@ -1,180 +1,446 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { UserSearch } from "@/components/user-search"
+import { useState, useEffect, useRef } from "react"
+import { Container } from "@/components/ui/container"
+import { PageHeader } from "@/components/page-header"
+import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { useAuth } from "@/contexts/auth-context"
-import { useChat } from "@/contexts/chat-context"
 import { db } from "@/lib/firebase"
-import { collection, query, where, orderBy, getDocs, DocumentData, doc, getDoc, limit } from "firebase/firestore"
-import { useRouter } from "next/navigation"
-import { format } from "date-fns"
-import { useToast } from "@/components/ui/use-toast"
+import {
+  collection,
+  query,
+  where,
+  orderBy,
+  limit,
+  getDocs,
+  addDoc,
+  serverTimestamp,
+  onSnapshot,
+  updateDoc,
+  doc,
+  getDoc,
+} from "firebase/firestore"
+import { Loader2, Send } from "lucide-react"
+import { cn } from "@/lib/utils"
 
-interface RecentChat {
+interface Message {
+  id: string
+  content: string
+  senderId: string
+  timestamp: any
+  sender?: {
+    name: string
+    avatar: string
+  }
+}
+
+interface Chat {
+  id: string
+  participants: string[]
+  lastMessage: string
+  timestamp: any
+  unreadCount: number
+  user: {
+    name: string
+    avatar: string
+    department: string
+  }
+}
+
+interface FirestoreUser {
   userId: string
   firstName: string
   lastName: string
-  username: string
+  department: string
   profileImage?: string
+}
+
+interface FirestoreChat {
+  participants: string[]
   lastMessage: string
-  timestamp: Date
-  unread: boolean
+  timestamp: any
+  unreadCount: number
+}
+
+interface FirestoreMessage {
+  chatId: string
+  content: string
+  senderId: string
+  timestamp: any
 }
 
 export default function ChatPage() {
-  const [recentChats, setRecentChats] = useState<RecentChat[]>([])
+  const { user, userData } = useAuth()
   const [loading, setLoading] = useState(true)
-  const { user } = useAuth()
-  const { unreadCount } = useChat()
-  const router = useRouter()
-  const { toast } = useToast()
+  const [chats, setChats] = useState<Chat[]>([])
+  const [selectedChat, setSelectedChat] = useState<Chat | null>(null)
+  const [messages, setMessages] = useState<Message[]>([])
+  const [messageInput, setMessageInput] = useState("")
+  const [sending, setSending] = useState(false)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  // Scroll to bottom of messages
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }
 
   useEffect(() => {
-    const fetchRecentChats = async () => {
-      if (!user) {
-        setLoading(false)
-        return
-      }
+    scrollToBottom()
+  }, [messages])
 
+  // Fetch chats
+  useEffect(() => {
+    if (!user) return
+
+    const fetchChats = async () => {
       try {
-        // Get recent messages where user is a participant
-        const messagesQuery = query(
-          collection(db, "messages"),
+        const chatsQuery = query(
+          collection(db, "chats"),
           where("participants", "array-contains", user.uid),
-          orderBy("timestamp", "desc"),
-          orderBy("__name__", "desc"), // Add this to match the index
-          limit(50) // Fetch more to account for different conversations
+          orderBy("timestamp", "desc")
         )
 
-        const messagesSnapshot = await getDocs(messagesQuery)
-        const processedUsers = new Set<string>()
-        const recentChatsMap = new Map<string, RecentChat>()
+        const unsubscribe = onSnapshot(chatsQuery, async (snapshot) => {
+          const chatsData = await Promise.all(
+            snapshot.docs.map(async (chatDoc) => {
+              const data = chatDoc.data() as FirestoreChat
+              const otherUserId = data.participants.find(
+                (id) => id !== user.uid
+              )
+              if (!otherUserId) return null
 
-        for (const messageDoc of messagesSnapshot.docs) {
-          const message = messageDoc.data()
-          if (!message.timestamp) continue // Skip messages without timestamp
+              const userDocRef = doc(db, "users", otherUserId)
+              const userDocSnap = await getDoc(userDocRef)
+              const userData = userDocSnap.data() as FirestoreUser | undefined
 
-          const otherUserId = message.senderId === user.uid ? message.receiverId : message.senderId
+              if (!userData) return null
 
-          if (!processedUsers.has(otherUserId)) {
-            processedUsers.add(otherUserId)
+              return {
+                id: chatDoc.id,
+                participants: data.participants,
+                lastMessage: data.lastMessage,
+                timestamp: data.timestamp,
+                unreadCount: data.unreadCount,
+                user: {
+                  name: `${userData.firstName} ${userData.lastName}`,
+                  avatar: userData.profileImage || "",
+                  department: userData.department || "",
+                },
+              } as Chat
+            })
+          )
 
-            try {
-              // Get user details
-              const userDoc = await getDoc(doc(db, "users", otherUserId))
-              
-              if (userDoc.exists()) {
-                const userData = userDoc.data()
-                recentChatsMap.set(otherUserId, {
-                  userId: otherUserId,
-                  firstName: userData.firstName || "",
-                  lastName: userData.lastName || "",
-                  username: userData.username || "",
-                  profileImage: userData.profileImage,
-                  lastMessage: message.content,
-                  timestamp: message.timestamp.toDate(),
-                  unread: !message.read && message.receiverId === user.uid
-                })
-
-                // Break if we have enough recent chats
-                if (recentChatsMap.size >= 10) break
-              }
-            } catch (error) {
-              console.error(`Error fetching user ${otherUserId}:`, error)
+          const validChats = chatsData.filter((chat): chat is Chat => chat !== null)
+          setChats(validChats)
+          
+          // If there's a chat ID in the URL, select that chat
+          const params = new URLSearchParams(window.location.search)
+          const chatId = params.get("id")
+          if (chatId) {
+            const selectedChat = validChats.find(chat => chat.id === chatId)
+            if (selectedChat) {
+              setSelectedChat(selectedChat)
             }
           }
-        }
-
-        setRecentChats(Array.from(recentChatsMap.values()))
-      } catch (error) {
-        console.error("Error fetching recent chats:", error)
-        toast({
-          variant: "destructive",
-          title: "Error loading chats",
-          description: "Please try refreshing the page."
+          
+          setLoading(false)
         })
-      } finally {
+
+        return () => unsubscribe()
+      } catch (error) {
+        console.error("Error fetching chats:", error)
         setLoading(false)
       }
     }
 
-    fetchRecentChats()
-  }, [user, unreadCount, toast])
+    fetchChats()
+  }, [user])
 
-  const handleChatSelect = (userId: string) => {
-    router.push(`/chat/${userId}`)
+  // Subscribe to messages when chat is selected
+  useEffect(() => {
+    if (!selectedChat) return
+
+    const messagesQuery = query(
+      collection(db, "messages"),
+      where("chatId", "==", selectedChat.id),
+      orderBy("timestamp", "asc")
+    )
+
+    const unsubscribe = onSnapshot(messagesQuery, async (snapshot) => {
+      const messagesData = await Promise.all(
+        snapshot.docs.map(async (messageDoc) => {
+          const data = messageDoc.data() as FirestoreMessage
+          const userDocRef = doc(db, "users", data.senderId)
+          const userDocSnap = await getDoc(userDocRef)
+          const userData = userDocSnap.data() as FirestoreUser | undefined
+
+          if (!userData) return null
+
+          return {
+            id: messageDoc.id,
+            content: data.content,
+            senderId: data.senderId,
+            timestamp: data.timestamp,
+            sender: {
+              name: `${userData.firstName} ${userData.lastName}`,
+              avatar: userData.profileImage || "",
+            },
+          } as Message
+        })
+      )
+
+      const validMessages = messagesData.filter((msg): msg is Message => msg !== null)
+      setMessages(validMessages)
+    })
+
+    return () => unsubscribe()
+  }, [selectedChat])
+
+  const createChat = async (currentUserId: string, otherUserId: string) => {
+    try {
+      // Check if chat already exists
+      const chatsQuery = query(
+        collection(db, "chats"),
+        where("participants", "array-contains", currentUserId)
+      )
+      const snapshot = await getDocs(chatsQuery)
+      const existingChat = snapshot.docs.find(chatDoc => {
+        const data = chatDoc.data()
+        return data.participants.includes(otherUserId)
+      })
+
+      if (existingChat) {
+        return existingChat.id
+      }
+
+      // Create new chat
+      const chatRef = await addDoc(collection(db, "chats"), {
+        participants: [currentUserId, otherUserId],
+        lastMessage: "",
+        timestamp: serverTimestamp(),
+        unreadCount: 0
+      })
+
+      return chatRef.id
+    } catch (error) {
+      console.error("Error creating chat:", error)
+      throw error
+    }
   }
 
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!user || !selectedChat || !messageInput.trim()) return
+
+    try {
+      setSending(true)
+      
+      // Create message
+      const messageRef = await addDoc(collection(db, "messages"), {
+        chatId: selectedChat.id,
+        content: messageInput,
+        senderId: user.uid,
+        timestamp: serverTimestamp(),
+      })
+
+      // Update chat's last message and timestamp
+      await updateDoc(doc(db, "chats", selectedChat.id), {
+        lastMessage: messageInput,
+        timestamp: serverTimestamp(),
+      })
+
+      setMessageInput("")
+    } catch (error) {
+      console.error("Error sending message:", error)
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const handleStartChat = async (userId: string) => {
+    if (!user) return
+
+    try {
+      setLoading(true)
+      const chatId = await createChat(user.uid, userId)
+      const chatDoc = await getDoc(doc(db, "chats", chatId))
+      const chatData = chatDoc.data()
+      
+      if (chatData) {
+        const otherUserId = chatData.participants.find((id: string) => id !== user.uid)
+        const userDoc = await getDoc(doc(db, "users", otherUserId))
+        const userData = userDoc.data()
+
+        setSelectedChat({
+          id: chatId,
+          ...chatData,
+          user: {
+            name: `${userData?.firstName} ${userData?.lastName}`,
+            avatar: userData?.profileImage || "",
+            department: userData?.department || "",
+          },
+        } as Chat)
+      }
+    } catch (error) {
+      console.error("Error starting chat:", error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (!user || !userData) return null
+
   return (
-    <div className="container mx-auto max-w-2xl p-4">
-      <h1 className="mb-6 text-2xl font-bold">Messages</h1>
+    <Container>
+      <div className="py-6 md:py-8">
+        <PageHeader title="Messages" description="Chat with your peers" />
 
-      {/* User Search */}
-      <div className="mb-8">
-        <h2 className="mb-4 text-lg font-semibold">Find People</h2>
-        <UserSearch />
-      </div>
+        <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-3 lg:grid-cols-4">
+          {/* Chat List */}
+          <Card className="col-span-1 h-[calc(100vh-12rem)] overflow-hidden md:block">
+            <div className="flex h-full flex-col">
+              <div className="p-4">
+                <Input placeholder="Search chats..." />
+              </div>
+              <div className="flex-1 overflow-y-auto p-2">
+                {loading ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary-purple" />
+                  </div>
+                ) : chats.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-8 text-center">
+                    <p className="text-sm text-gray-500">No chats yet</p>
+                    <Button className="mt-4" variant="outline">
+                      Start a Chat
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {chats.map((chat) => (
+                      <button
+                        key={chat.id}
+                        className={cn(
+                          "flex w-full items-center gap-3 rounded-lg p-3 text-left transition-colors hover:bg-gray-100",
+                          selectedChat?.id === chat.id && "bg-gray-100"
+                        )}
+                        onClick={() => setSelectedChat(chat)}
+                      >
+                        <Avatar>
+                          <AvatarImage src={chat.user.avatar} />
+                          <AvatarFallback>
+                            {chat.user.name[0]}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 overflow-hidden">
+                          <p className="font-medium">{chat.user.name}</p>
+                          <p className="truncate text-sm text-gray-500">
+                            {chat.lastMessage}
+                          </p>
+                        </div>
+                        {chat.unreadCount > 0 && (
+                          <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary-purple text-xs text-white">
+                            {chat.unreadCount}
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </Card>
 
-      {/* Recent Chats */}
-      <div>
-        <h2 className="mb-4 text-lg font-semibold">Recent Conversations</h2>
-        {loading ? (
-          <div className="flex justify-center py-4">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary-purple border-t-transparent"></div>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {recentChats.map((chat) => (
-              <Card
-                key={chat.userId}
-                className={`cursor-pointer p-4 transition-colors hover:bg-gray-50 ${
-                  chat.unread ? "bg-gray-50" : ""
-                }`}
-                onClick={() => handleChatSelect(chat.userId)}
-              >
-                <div className="flex items-center gap-3">
-                  <Avatar className="h-10 w-10">
-                    {chat.profileImage ? (
-                      <AvatarImage src={chat.profileImage} alt={`${chat.firstName} ${chat.lastName}`} />
-                    ) : (
+          {/* Chat Window */}
+          <Card className="col-span-1 h-[calc(100vh-12rem)] overflow-hidden md:col-span-2 lg:col-span-3">
+            {selectedChat ? (
+              <div className="flex h-full flex-col">
+                {/* Chat Header */}
+                <div className="border-b p-4">
+                  <div className="flex items-center gap-3">
+                    <Avatar>
+                      <AvatarImage src={selectedChat.user.avatar} />
                       <AvatarFallback>
-                        {chat.firstName[0]}
-                        {chat.lastName[0]}
+                        {selectedChat.user.name[0]}
                       </AvatarFallback>
-                    )}
-                  </Avatar>
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                      <h3 className="font-medium">
-                        {chat.firstName} {chat.lastName}
-                      </h3>
+                    </Avatar>
+                    <div>
+                      <p className="font-medium">{selectedChat.user.name}</p>
                       <p className="text-sm text-gray-500">
-                        {format(chat.timestamp, "MMM d, h:mm a")}
+                        {selectedChat.user.department}
                       </p>
                     </div>
-                    <p className={`text-sm ${chat.unread ? "font-medium text-gray-900" : "text-gray-500"}`}>
-                      {chat.lastMessage.length > 50
-                        ? chat.lastMessage.substring(0, 50) + "..."
-                        : chat.lastMessage}
-                    </p>
                   </div>
                 </div>
-              </Card>
-            ))}
 
-            {!loading && recentChats.length === 0 && (
-              <div className="rounded-lg border border-dashed p-8 text-center">
-                <p className="text-gray-500">No recent conversations</p>
-                <p className="mt-1 text-sm text-gray-400">
-                  Use the search above to find people and start chatting
+                {/* Messages */}
+                <div className="flex-1 overflow-y-auto p-4">
+                  <div className="space-y-4">
+                    {messages.map((message) => (
+                      <div
+                        key={message.id}
+                        className={cn(
+                          "flex items-end gap-2",
+                          message.senderId === user.uid && "flex-row-reverse"
+                        )}
+                      >
+                        <Avatar className="h-6 w-6">
+                          <AvatarImage src={message.sender?.avatar} />
+                          <AvatarFallback>
+                            {message.sender?.name[0]}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div
+                          className={cn(
+                            "max-w-[70%] rounded-lg px-4 py-2",
+                            message.senderId === user.uid
+                              ? "bg-primary-purple text-white"
+                              : "bg-gray-100"
+                          )}
+                        >
+                          <p className="text-sm">{message.content}</p>
+                        </div>
+                      </div>
+                    ))}
+                    <div ref={messagesEndRef} />
+                  </div>
+                </div>
+
+                {/* Message Input */}
+                <div className="border-t p-4">
+                  <form
+                    onSubmit={handleSendMessage}
+                    className="flex items-center gap-2"
+                  >
+                    <Input
+                      placeholder="Type a message..."
+                      value={messageInput}
+                      onChange={(e) => setMessageInput(e.target.value)}
+                      disabled={sending}
+                    />
+                    <Button type="submit" disabled={sending || !messageInput.trim()}>
+                      {sending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Send className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </form>
+                </div>
+              </div>
+            ) : (
+              <div className="flex h-full flex-col items-center justify-center text-center">
+                <h3 className="text-lg font-semibold">No chat selected</h3>
+                <p className="text-sm text-gray-500">
+                  Select a chat from the list to start messaging
                 </p>
               </div>
             )}
-          </div>
-        )}
+          </Card>
+        </div>
       </div>
-    </div>
+    </Container>
   )
 }
