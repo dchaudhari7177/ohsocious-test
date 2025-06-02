@@ -1,15 +1,22 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { ArrowLeft, Heart, MessageSquare, Users, Bell, Calendar } from "lucide-react"
 import Link from "next/link"
 import { useNotifications } from "@/contexts/notifications-context"
 import { formatDistanceToNow } from "date-fns"
+import { useToast } from "@/components/ui/use-toast"
 
 export default function NotificationsPage() {
   const { notifications, unreadCount, markAsRead, markAllAsRead, deleteNotification } = useNotifications()
   const [activeTab, setActiveTab] = useState("all")
+  const [loading, setLoading] = useState(false)
+  const { toast } = useToast()
+
+  useEffect(() => {
+    console.log("Current notifications:", notifications)
+  }, [notifications])
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
@@ -33,7 +40,39 @@ export default function NotificationsPage() {
   }
 
   const handleNotificationClick = async (notificationId: string) => {
-    await markAsRead(notificationId)
+    try {
+      setLoading(true)
+      await markAsRead(notificationId)
+    } catch (error) {
+      console.error("Error marking notification as read:", error)
+      toast({
+        title: "Error",
+        description: "Failed to mark notification as read. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleMarkAllAsRead = async () => {
+    try {
+      setLoading(true)
+      await markAllAsRead()
+      toast({
+        title: "Success",
+        description: "All notifications marked as read",
+      })
+    } catch (error) {
+      console.error("Error marking all notifications as read:", error)
+      toast({
+        title: "Error",
+        description: "Failed to mark all notifications as read. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -82,7 +121,12 @@ export default function NotificationsPage() {
           </Button>
         </div>
         {unreadCount > 0 && (
-          <Button variant="ghost" size="sm" onClick={markAllAsRead}>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={handleMarkAllAsRead}
+            disabled={loading}
+          >
             Mark all as read
           </Button>
         )}
@@ -96,7 +140,13 @@ export default function NotificationsPage() {
             className={`block rounded-lg border p-4 transition-colors hover:bg-gray-50 ${
               !notification.read ? "bg-blue-50" : ""
             }`}
-            onClick={() => handleNotificationClick(notification.id)}
+            onClick={(e) => {
+              if (loading) {
+                e.preventDefault()
+                return
+              }
+              handleNotificationClick(notification.id)
+            }}
           >
             <div className="flex items-start gap-4">
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100">
@@ -106,7 +156,9 @@ export default function NotificationsPage() {
                 <div className="flex items-center justify-between">
                   <p className="font-medium text-gray-900">{notification.senderName}</p>
                   <span className="text-sm text-gray-500">
-                    {formatDistanceToNow(notification.createdAt?.toDate(), { addSuffix: true })}
+                    {notification.createdAt?.toDate() 
+                      ? formatDistanceToNow(notification.createdAt.toDate(), { addSuffix: true })
+                      : "Just now"}
                   </span>
                 </div>
                 <p className="text-sm text-gray-600">{notification.content}</p>

@@ -40,6 +40,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!user) return
 
+    console.log("Setting up unread messages listener for user:", user.uid)
+
     const unreadQuery = query(
       collection(db, "messages"),
       where("receiverId", "==", user.uid),
@@ -47,10 +49,16 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     )
 
     const unsubscribe = onSnapshot(unreadQuery, (snapshot) => {
+      console.log("Unread messages count:", snapshot.docs.length)
       setUnreadCount(snapshot.docs.length)
+    }, (error) => {
+      console.error("Error in unread messages listener:", error)
     })
 
-    return () => unsubscribe()
+    return () => {
+      console.log("Cleaning up unread messages listener")
+      unsubscribe()
+    }
   }, [user])
 
   // Cleanup function for chat subscription
@@ -65,6 +73,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const loadChatHistory = useCallback((otherUserId: string) => {
     if (!user) return
 
+    console.log("Loading chat history with user:", otherUserId)
+
     // Clean up previous subscription
     cleanupChatSubscription()
     
@@ -78,6 +88,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     )
 
     chatUnsubscribeRef.current = onSnapshot(chatQuery, (snapshot) => {
+      console.log("Chat messages snapshot received:", snapshot.docs.length, "messages")
       const chatMessages: Message[] = []
       snapshot.docs.forEach((doc) => {
         const data = doc.data() as DocumentData
@@ -96,7 +107,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           })
         }
       })
+      console.log("Filtered chat messages:", chatMessages.length)
       setMessages(chatMessages)
+    }, (error) => {
+      console.error("Error in chat messages listener:", error)
     })
   }, [user, cleanupChatSubscription])
 
@@ -110,9 +124,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const sendMessage = useCallback(async (receiverId: string, content: string) => {
     if (!user || !userData) return
 
+    console.log("Sending message to user:", receiverId)
     try {
       // Add message to Firestore
-      await addDoc(collection(db, "messages"), {
+      const messageRef = await addDoc(collection(db, "messages"), {
         senderId: user.uid,
         receiverId,
         content,
@@ -120,6 +135,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         read: false,
         participants: [user.uid, receiverId], // Add this array for easier querying
       })
+      console.log("Message created with ID:", messageRef.id)
 
       // Create notification for the recipient
       await createMessageNotification({
@@ -129,6 +145,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         recipientId: receiverId,
         chatId: receiverId, // Using receiverId as chatId for direct messages
       })
+      console.log("Message notification created successfully")
     } catch (error) {
       console.error("Error sending message:", error)
       throw error

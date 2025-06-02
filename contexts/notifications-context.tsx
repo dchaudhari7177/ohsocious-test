@@ -57,6 +57,8 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       return
     }
 
+    console.log("Setting up notifications listener for user:", user.uid)
+
     // Subscribe to notifications for the current user
     const q = query(
       collection(db, "notifications"),
@@ -65,46 +67,80 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     )
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const newNotifications = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as Notification[]
+      console.log("Notifications snapshot received:", snapshot.docs.length, "notifications")
+      const newNotifications = snapshot.docs.map((doc) => {
+        const data = doc.data()
+        console.log("Notification data:", { id: doc.id, ...data })
+        return {
+          id: doc.id,
+          ...data,
+        }
+      }) as Notification[]
       setNotifications(newNotifications)
+    }, (error) => {
+      console.error("Error in notifications listener:", error)
     })
 
-    return () => unsubscribe()
+    return () => {
+      console.log("Cleaning up notifications listener")
+      unsubscribe()
+    }
   }, [user])
 
   const unreadCount = notifications.filter((n) => !n.read).length
 
   const markAsRead = async (notificationId: string) => {
     if (!user) return
-    const notificationRef = doc(db, "notifications", notificationId)
-    await updateDoc(notificationRef, { read: true })
+    console.log("Marking notification as read:", notificationId)
+    try {
+      const notificationRef = doc(db, "notifications", notificationId)
+      await updateDoc(notificationRef, { read: true })
+      console.log("Successfully marked notification as read")
+    } catch (error) {
+      console.error("Error marking notification as read:", error)
+    }
   }
 
   const markAllAsRead = async () => {
     if (!user) return
-    const promises = notifications
-      .filter((n) => !n.read)
-      .map((n) => updateDoc(doc(db, "notifications", n.id), { read: true }))
-    await Promise.all(promises)
+    console.log("Marking all notifications as read")
+    try {
+      const promises = notifications
+        .filter((n) => !n.read)
+        .map((n) => updateDoc(doc(db, "notifications", n.id), { read: true }))
+      await Promise.all(promises)
+      console.log("Successfully marked all notifications as read")
+    } catch (error) {
+      console.error("Error marking all notifications as read:", error)
+    }
   }
 
   const deleteNotification = async (notificationId: string) => {
     if (!user) return
-    await deleteDoc(doc(db, "notifications", notificationId))
+    console.log("Deleting notification:", notificationId)
+    try {
+      await deleteDoc(doc(db, "notifications", notificationId))
+      console.log("Successfully deleted notification")
+    } catch (error) {
+      console.error("Error deleting notification:", error)
+    }
   }
 
   const createNotification = async (
     notification: Omit<Notification, "id" | "createdAt" | "read">
   ) => {
     if (!user) return
-    await addDoc(collection(db, "notifications"), {
-      ...notification,
-      read: false,
-      createdAt: serverTimestamp(),
-    })
+    console.log("Creating new notification:", notification)
+    try {
+      const docRef = await addDoc(collection(db, "notifications"), {
+        ...notification,
+        read: false,
+        createdAt: serverTimestamp(),
+      })
+      console.log("Successfully created notification with ID:", docRef.id)
+    } catch (error) {
+      console.error("Error creating notification:", error)
+    }
   }
 
   return (
