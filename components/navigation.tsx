@@ -21,7 +21,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useAuth } from "@/contexts/auth-context"
-import { Menu, Home, Users, MessageSquare, Bell, Settings, LogOut } from "lucide-react"
+import { Menu, Home, Users, MessageSquare, Bell, Settings, LogOut, User } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { auth } from "@/lib/firebase"
 import { useNotifications } from "@/contexts/notifications-context"
@@ -33,11 +33,6 @@ const navigationItems = [
     icon: Home,
   },
   {
-    name: "Messages",
-    href: "/chat",
-    icon: MessageSquare,
-  },
-  {
     name: "People",
     href: "/people",
     icon: Users,
@@ -46,6 +41,16 @@ const navigationItems = [
     name: "Notifications",
     href: "/notifications",
     icon: Bell,
+  },
+  {
+    name: "Messages",
+    href: "/messages",
+    icon: MessageSquare,
+  },
+  {
+    name: "Profile",
+    href: "/profile",
+    icon: User,
   },
 ]
 

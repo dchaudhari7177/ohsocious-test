@@ -71,30 +71,36 @@ export default function ProfilePage() {
     if (!user || !profile || !userId) return
 
     try {
+      console.log("Starting follow operation for:", userId)
       const isFollowing = userData?.following?.includes(userId)
       const userRef = doc(db, "users", user.uid)
 
       await updateDoc(userRef, {
         following: isFollowing ? arrayRemove(userId) : arrayUnion(userId),
       })
+      console.log("Updated following array for current user")
 
       const otherUserRef = doc(db, "users", userId)
       await updateDoc(otherUserRef, {
         followers: isFollowing ? arrayRemove(user.uid) : arrayUnion(user.uid),
       })
+      console.log("Updated followers array for target user")
 
       if (!isFollowing) {
+        console.log("Creating follow notification")
         await createFollowNotification({
           followerId: user.uid,
           followerName: `${userData?.firstName} ${userData?.lastName}`,
           followerAvatar: userData?.profileImage,
           userId: userId,
         })
+        console.log("Follow notification created successfully")
       }
 
       await refreshUserData()
+      console.log("User data refreshed")
     } catch (error) {
-      console.error("Error updating follow status:", error)
+      console.error("Error in follow operation:", error)
     }
   }
 
