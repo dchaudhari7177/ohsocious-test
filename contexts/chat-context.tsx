@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState, useCallback, useRef } f
 import { db } from "@/lib/firebase"
 import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp, DocumentData } from "firebase/firestore"
 import { useAuth } from "./auth-context"
+import { createMessageNotification } from "@/lib/notifications"
 
 interface Message {
   id: string
@@ -31,7 +32,7 @@ const ChatContext = createContext<ChatContextType>({
 export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [messages, setMessages] = useState<Message[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
-  const { user } = useAuth()
+  const { user, userData } = useAuth()
   const [currentChatUser, setCurrentChatUser] = useState<string | null>(null)
   const chatUnsubscribeRef = useRef<(() => void) | null>(null)
 
@@ -107,9 +108,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   }, [cleanupChatSubscription])
 
   const sendMessage = useCallback(async (receiverId: string, content: string) => {
-    if (!user) return
+    if (!user || !userData) return
 
     try {
+      // Add message to Firestore
       await addDoc(collection(db, "messages"), {
         senderId: user.uid,
         receiverId,
@@ -118,11 +120,20 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         read: false,
         participants: [user.uid, receiverId], // Add this array for easier querying
       })
+
+      // Create notification for the recipient
+      await createMessageNotification({
+        senderId: user.uid,
+        senderName: `${userData.firstName} ${userData.lastName}`,
+        senderAvatar: userData.profileImage,
+        recipientId: receiverId,
+        chatId: receiverId, // Using receiverId as chatId for direct messages
+      })
     } catch (error) {
       console.error("Error sending message:", error)
       throw error
     }
-  }, [user])
+  }, [user, userData])
 
   return (
     <ChatContext.Provider value={{ messages, sendMessage, loadChatHistory, unreadCount }}>

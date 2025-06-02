@@ -4,111 +4,26 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { ArrowLeft, Heart, MessageSquare, Users, Bell, Calendar } from "lucide-react"
 import Link from "next/link"
-
-// Sample notification data
-const allNotifications = [
-  {
-    id: "1",
-    type: "message",
-    user: {
-      name: "Emma Wilson",
-      avatar: "/placeholder.svg?height=40&width=40",
-    },
-    content: "sent you a message",
-    timestamp: "2 min ago",
-    read: false,
-    link: "/chat/1",
-  },
-  {
-    id: "2",
-    type: "connection",
-    user: {
-      name: "James Rodriguez",
-      avatar: "/placeholder.svg?height=40&width=40",
-    },
-    content: "accepted your connection request",
-    timestamp: "1 hour ago",
-    read: false,
-    link: "/profile/2",
-  },
-  {
-    id: "3",
-    type: "like",
-    user: {
-      name: "Sophia Chen",
-      avatar: "/placeholder.svg?height=40&width=40",
-    },
-    content: "liked your post about the campus event",
-    timestamp: "3 hours ago",
-    read: false,
-    link: "/feed",
-  },
-  {
-    id: "4",
-    type: "group",
-    user: {
-      name: "CS Study Group",
-      avatar: "/placeholder.svg?height=40&width=40",
-    },
-    content: "Emma Wilson posted in the group",
-    timestamp: "5 hours ago",
-    read: true,
-    link: "/chat/group/1",
-  },
-  {
-    id: "5",
-    type: "event",
-    user: {
-      name: "Campus Events Committee",
-      avatar: "/placeholder.svg?height=40&width=40",
-    },
-    content: "New event: Welcome Party on Friday",
-    timestamp: "Yesterday",
-    read: true,
-    link: "/events",
-  },
-  {
-    id: "6",
-    type: "message",
-    user: {
-      name: "Marcus Johnson",
-      avatar: "/placeholder.svg?height=40&width=40",
-    },
-    content: "replied to your message",
-    timestamp: "Yesterday",
-    read: true,
-    link: "/chat/4",
-  },
-  {
-    id: "7",
-    type: "connection",
-    user: {
-      name: "Olivia Martinez",
-      avatar: "/placeholder.svg?height=40&width=40",
-    },
-    content: "sent you a connection request",
-    timestamp: "2 days ago",
-    read: true,
-    link: "/profile/5",
-  },
-]
+import { useNotifications } from "@/contexts/notifications-context"
+import { formatDistanceToNow } from "date-fns"
 
 export default function NotificationsPage() {
-  const [notifications, setNotifications] = useState(allNotifications)
+  const { notifications, unreadCount, markAsRead, markAllAsRead, deleteNotification } = useNotifications()
   const [activeTab, setActiveTab] = useState("all")
 
-  const unreadCount = notifications.filter((n) => !n.read).length
-
-  const markAsRead = (id: string) => {
-    setNotifications(
-      notifications.map((notification) =>
-        notification.id === id ? { ...notification, read: true } : notification
-      )
-    )
-  }
-
-  const markAllAsRead = () => {
-    setNotifications(notifications.map((notification) => ({ ...notification, read: true })))
+  const getNotificationIcon = (type: string) => {
+    switch (type) {
+      case "message":
+        return <MessageSquare className="h-4 w-4 text-blue-500" />
+      case "follow":
+        return <Users className="h-4 w-4 text-primary-purple" />
+      case "like":
+        return <Heart className="h-4 w-4 text-secondary-pink" />
+      case "comment":
+        return <MessageSquare className="h-4 w-4 text-green-500" />
+      default:
+        return <Bell className="h-4 w-4 text-gray-500" />
+    }
   }
 
   const getFilteredNotifications = () => {
@@ -117,21 +32,8 @@ export default function NotificationsPage() {
     return notifications.filter((n) => n.type === activeTab)
   }
 
-  const getNotificationIcon = (type: string) => {
-    switch (type) {
-      case "message":
-        return <MessageSquare className="h-4 w-4 text-blue-500" />
-      case "connection":
-        return <Users className="h-4 w-4 text-primary-purple" />
-      case "like":
-        return <Heart className="h-4 w-4 text-secondary-pink" />
-      case "group":
-        return <Users className="h-4 w-4 text-green-500" />
-      case "event":
-        return <Calendar className="h-4 w-4 text-orange-500" />
-      default:
-        return <Bell className="h-4 w-4 text-gray-500" />
-    }
+  const handleNotificationClick = async (notificationId: string) => {
+    await markAsRead(notificationId)
   }
 
   return (
@@ -172,11 +74,11 @@ export default function NotificationsPage() {
             Messages
           </Button>
           <Button
-            variant={activeTab === "connection" ? "default" : "outline"}
+            variant={activeTab === "follow" ? "default" : "outline"}
             size="sm"
-            onClick={() => setActiveTab("connection")}
+            onClick={() => setActiveTab("follow")}
           >
-            Connections
+            Follows
           </Button>
         </div>
         {unreadCount > 0 && (
@@ -194,7 +96,7 @@ export default function NotificationsPage() {
             className={`block rounded-lg border p-4 transition-colors hover:bg-gray-50 ${
               !notification.read ? "bg-blue-50" : ""
             }`}
-            onClick={() => markAsRead(notification.id)}
+            onClick={() => handleNotificationClick(notification.id)}
           >
             <div className="flex items-start gap-4">
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100">
@@ -202,14 +104,28 @@ export default function NotificationsPage() {
               </div>
               <div className="flex-1">
                 <div className="flex items-center justify-between">
-                  <p className="font-medium text-gray-900">{notification.user.name}</p>
-                  <span className="text-sm text-gray-500">{notification.timestamp}</span>
+                  <p className="font-medium text-gray-900">{notification.senderName}</p>
+                  <span className="text-sm text-gray-500">
+                    {formatDistanceToNow(notification.createdAt?.toDate(), { addSuffix: true })}
+                  </span>
                 </div>
                 <p className="text-sm text-gray-600">{notification.content}</p>
               </div>
             </div>
           </Link>
         ))}
+
+        {getFilteredNotifications().length === 0 && (
+          <div className="flex flex-col items-center justify-center py-12">
+            <Bell className="h-12 w-12 text-gray-400" />
+            <p className="mt-4 text-lg font-medium text-gray-900">No notifications</p>
+            <p className="text-sm text-gray-500">
+              {activeTab === "all"
+                ? "You don't have any notifications yet"
+                : `You don't have any ${activeTab} notifications`}
+            </p>
+          </div>
+        )}
       </div>
     </div>
   )

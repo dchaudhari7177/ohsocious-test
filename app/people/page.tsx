@@ -22,6 +22,7 @@ import {
 } from "firebase/firestore"
 import { Loader2 } from "lucide-react"
 import { useRouter } from "next/navigation"
+import { createFollowNotification } from "@/lib/notifications"
 
 interface User {
   id: string
@@ -95,6 +96,16 @@ export default function PeoplePage() {
           ? arrayRemove(user.uid)
           : arrayUnion(user.uid),
       })
+
+      // Create notification when following (not when unfollowing)
+      if (!isFollowing) {
+        await createFollowNotification({
+          followerId: user.uid,
+          followerName: `${userData?.firstName} ${userData?.lastName}`,
+          followerAvatar: userData?.profileImage,
+          userId: userId,
+        })
+      }
 
       // Refresh user data to update UI
       await refreshUserData()

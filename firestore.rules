@@ -127,5 +127,24 @@ service cloud.firestore {
       allow update, delete: if isAuthenticated() && 
         (resource.data.userId == request.auth.uid);
     }
+
+    // Notifications collection rules
+    match /notifications/{notificationId} {
+      // Allow reading notifications if user is the recipient
+      allow read: if isAuthenticated() && 
+        resource.data.recipientId == request.auth.uid;
+      
+      // Allow creating notifications if user is authenticated
+      // This is needed for sending notifications to other users
+      allow create: if isAuthenticated();
+      
+      // Allow updating notifications (e.g., marking as read) if user is the recipient
+      allow update: if isAuthenticated() && 
+        resource.data.recipientId == request.auth.uid;
+      
+      // Allow deleting notifications if user is the recipient
+      allow delete: if isAuthenticated() && 
+        resource.data.recipientId == request.auth.uid;
+    }
   }
 } 
