@@ -13,6 +13,7 @@ interface Message {
   content: string
   timestamp: Date
   read: boolean
+  participants: string[]
 }
 
 interface ChatContextType {
@@ -44,6 +45,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
     const unreadQuery = query(
       collection(db, "messages"),
+      where("participants", "array-contains", user.uid),
       where("receiverId", "==", user.uid),
       where("read", "==", false)
     )
@@ -104,6 +106,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             content: data.content,
             timestamp: data.timestamp?.toDate() || new Date(),
             read: data.read || false,
+            participants: data.participants || [data.senderId, data.receiverId],
           })
         }
       })
@@ -133,7 +136,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         content,
         timestamp: serverTimestamp(),
         read: false,
-        participants: [user.uid, receiverId], // Add this array for easier querying
+        participants: [user.uid, receiverId], // Add participants array for permissions
       })
       console.log("Message created with ID:", messageRef.id)
 
