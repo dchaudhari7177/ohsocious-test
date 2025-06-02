@@ -24,6 +24,7 @@ import { useAuth } from "@/contexts/auth-context"
 import { Menu, Home, Users, MessageSquare, Bell, Settings, LogOut } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { auth } from "@/lib/firebase"
+import { useNotifications } from "@/contexts/notifications-context"
 
 const navigationItems = [
   {
@@ -50,6 +51,7 @@ const navigationItems = [
 
 export function Navigation() {
   const { user, userData } = useAuth()
+  const { unreadCount } = useNotifications()
   const pathname = usePathname()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
@@ -68,25 +70,24 @@ export function Navigation() {
 
           {/* Desktop Navigation */}
           <nav className="hidden items-center gap-1 md:flex">
-            {navigationItems.map((item) => {
-              const Icon = item.icon
-              return (
-                <Button
-                  key={item.href}
-                  variant="ghost"
-                  className={cn(
-                    "flex items-center gap-2",
-                    pathname === item.href && "bg-gray-100"
-                  )}
-                  asChild
-                >
-                  <Link href={item.href}>
-                    <Icon className="h-4 w-4" />
-                    {item.name}
-                  </Link>
-                </Button>
-              )
-            })}
+            {navigationItems.map((item) => (
+              <Link
+                key={item.name}
+                href={item.href}
+                className={cn(
+                  "relative flex items-center gap-2 rounded-lg px-3 py-2 text-gray-500 transition-colors hover:text-gray-900",
+                  pathname === item.href && "bg-gray-100 text-gray-900"
+                )}
+              >
+                <item.icon className="h-5 w-5" />
+                <span>{item.name}</span>
+                {item.name === "Notifications" && unreadCount > 0 && (
+                  <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary-purple text-xs text-white">
+                    {unreadCount}
+                  </span>
+                )}
+              </Link>
+            ))}
           </nav>
 
           {/* User Menu */}

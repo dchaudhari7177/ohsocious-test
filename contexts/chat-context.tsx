@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState, useCallback, useRef } f
 import { db } from "@/lib/firebase"
 import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp, DocumentData } from "firebase/firestore"
 import { useAuth } from "./auth-context"
+import { createMessageNotification } from "@/lib/notifications"
 
 interface Message {
   id: string
@@ -31,13 +32,15 @@ const ChatContext = createContext<ChatContextType>({
 export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [messages, setMessages] = useState<Message[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
-  const { user } = useAuth()
+  const { user, userData } = useAuth()
   const [currentChatUser, setCurrentChatUser] = useState<string | null>(null)
   const chatUnsubscribeRef = useRef<(() => void) | null>(null)
 
   // Listen for unread messages count
   useEffect(() => {
     if (!user) return
+
+    console.log("Setting up unread messages listener for user:", user.uid)
 
     const unreadQuery = query(
       collection(db, "messages"),
@@ -46,10 +49,16 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     )
 
     const unsubscribe = onSnapshot(unreadQuery, (snapshot) => {
+      console.log("Unread messages count:", snapshot.docs.length)
       setUnreadCount(snapshot.docs.length)
+    }, (error) => {
+      console.error("Error in unread messages listener:", error)
     })
 
-    return () => unsubscribe()
+    return () => {
+      console.log("Cleaning up unread messages listener")
+      unsubscribe()
+    }
   }, [user])
 
   // Cleanup function for chat subscription
@@ -64,6 +73,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const loadChatHistory = useCallback((otherUserId: string) => {
     if (!user) return
 
+    console.log("Loading chat history with user:", otherUserId)
+
     // Clean up previous subscription
     cleanupChatSubscription()
     
@@ -77,6 +88,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     )
 
     chatUnsubscribeRef.current = onSnapshot(chatQuery, (snapshot) => {
+      console.log("Chat messages snapshot received:", snapshot.docs.length, "messages")
       const chatMessages: Message[] = []
       snapshot.docs.forEach((doc) => {
         const data = doc.data() as DocumentData
@@ -95,7 +107,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           })
         }
       })
+      console.log("Filtered chat messages:", chatMessages.length)
       setMessages(chatMessages)
+    }, (error) => {
+      console.error("Error in chat messages listener:", error)
     })
   }, [user, cleanupChatSubscription])
 
@@ -107,10 +122,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   }, [cleanupChatSubscription])
 
   const sendMessage = useCallback(async (receiverId: string, content: string) => {
-    if (!user) return
+    if (!user || !userData) return
 
+    console.log("Sending message to user:", receiverId)
     try {
-      await addDoc(collection(db, "messages"), {
+      // Add message to Firestore
+      const messageRef = await addDoc(collection(db, "messages"), {
         senderId: user.uid,
         receiverId,
         content,
@@ -118,11 +135,22 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         read: false,
         participants: [user.uid, receiverId], // Add this array for easier querying
       })
+      console.log("Message created with ID:", messageRef.id)
+
+      // Create notification for the recipient
+      await createMessageNotification({
+        senderId: user.uid,
+        senderName: `${userData.firstName} ${userData.lastName}`,
+        senderAvatar: userData.profileImage,
+        recipientId: receiverId,
+        chatId: receiverId, // Using receiverId as chatId for direct messages
+      })
+      console.log("Message notification created successfully")
     } catch (error) {
       console.error("Error sending message:", error)
       throw error
     }
-  }, [user])
+  }, [user, userData])
 
   return (
     <ChatContext.Provider value={{ messages, sendMessage, loadChatHistory, unreadCount }}>

@@ -24,6 +24,7 @@ import {
 } from "firebase/firestore"
 import { Loader2, UserPlus, MessageCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { createFollowNotification } from "@/lib/notifications"
 
 interface UserProfile {
   firstName: string
@@ -81,6 +82,15 @@ export default function ProfilePage() {
       await updateDoc(otherUserRef, {
         followers: isFollowing ? arrayRemove(user.uid) : arrayUnion(user.uid),
       })
+
+      if (!isFollowing) {
+        await createFollowNotification({
+          followerId: user.uid,
+          followerName: `${userData?.firstName} ${userData?.lastName}`,
+          followerAvatar: userData?.profileImage,
+          userId: userId,
+        })
+      }
 
       await refreshUserData()
     } catch (error) {
