@@ -11,6 +11,7 @@ import { Send } from "lucide-react"
 import { doc, getDoc } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { format } from "date-fns"
+import { useToast } from "@/components/ui/use-toast"
 
 interface ChatUser {
   firstName: string
@@ -26,6 +27,7 @@ export default function ChatPage() {
   const [chatUser, setChatUser] = useState<ChatUser | null>(null)
   const [loading, setLoading] = useState(true)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const { toast } = useToast()
 
   useEffect(() => {
     const fetchChatUser = async () => {
@@ -64,13 +66,27 @@ export default function ChatPage() {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!newMessage.trim() || !userId || typeof userId !== "string") return
+    if (!newMessage.trim() || !userId || typeof userId !== "string" || loading) return
 
     try {
+      console.log("Starting to send message to:", userId)
+      setLoading(true)
       await sendMessage(userId, newMessage.trim())
+      console.log("Message sent successfully")
       setNewMessage("")
+      toast({
+        title: "Message sent",
+        description: "Your message has been sent successfully.",
+      })
     } catch (error) {
       console.error("Error sending message:", error)
+      toast({
+        title: "Error",
+        description: "Failed to send message. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -154,8 +170,9 @@ export default function ChatPage() {
             onChange={(e) => setNewMessage(e.target.value)}
             placeholder="Type a message..."
             className="flex-1"
+            disabled={loading}
           />
-          <Button type="submit" disabled={!newMessage.trim()}>
+          <Button type="submit" disabled={!newMessage.trim() || loading}>
             <Send className="h-4 w-4" />
           </Button>
         </div>
