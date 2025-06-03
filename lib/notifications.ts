@@ -19,11 +19,24 @@ export async function createNotification(data: NotificationData) {
       throw new Error("Missing required notification fields")
     }
 
-    const docRef = await addDoc(collection(db, "notifications"), {
-      ...data,
+    // Create notification document data, excluding undefined values
+    const notificationData = {
+      type: data.type,
+      senderId: data.senderId,
+      senderName: data.senderName,
+      recipientId: data.recipientId,
+      content: data.content,
+      link: data.link,
       read: false,
       createdAt: serverTimestamp(),
-    })
+    }
+
+    // Only add senderAvatar if it exists
+    if (data.senderAvatar) {
+      Object.assign(notificationData, { senderAvatar: data.senderAvatar })
+    }
+
+    const docRef = await addDoc(collection(db, "notifications"), notificationData)
     console.log("Successfully created notification with ID:", docRef.id)
     return docRef.id
   } catch (error) {
@@ -49,15 +62,22 @@ export async function createFollowNotification({
       throw new Error("Missing required follow notification fields")
     }
 
-    return await createNotification({
+    // Create notification data, only including followerAvatar if it exists
+    const notificationData: NotificationData = {
       type: "follow",
       senderId: followerId,
       senderName: followerName,
-      senderAvatar: followerAvatar,
       recipientId: userId,
       content: "started following you",
       link: `/profile/${followerId}`,
-    })
+    }
+
+    // Only add followerAvatar if it exists
+    if (followerAvatar) {
+      notificationData.senderAvatar = followerAvatar
+    }
+
+    return await createNotification(notificationData)
   } catch (error) {
     console.error("Error creating follow notification:", error)
     throw error
@@ -83,15 +103,22 @@ export async function createMessageNotification({
       throw new Error("Missing required message notification fields")
     }
 
-    return await createNotification({
+    // Create notification data, only including senderAvatar if it exists
+    const notificationData: NotificationData = {
       type: "message",
       senderId,
       senderName,
-      senderAvatar,
       recipientId,
       content: "sent you a message",
       link: `/chat/${chatId}`,
-    })
+    }
+
+    // Only add senderAvatar if it exists
+    if (senderAvatar) {
+      notificationData.senderAvatar = senderAvatar
+    }
+
+    return await createNotification(notificationData)
   } catch (error) {
     console.error("Error creating message notification:", error)
     throw error
