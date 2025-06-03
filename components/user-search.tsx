@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card"
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { Search, MessageCircle, Users } from "lucide-react"
 import { db } from "@/lib/firebase"
-import { collection, query as firestoreQuery, getDocs, orderBy, limit, where, DocumentData } from "firebase/firestore"
+import { collection, query as firestoreQuery, getDocs, orderBy, limit, where, DocumentData, addDoc, query, serverTimestamp } from "firebase/firestore"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/contexts/auth-context"
 import { useToast } from "@/components/ui/use-toast"
@@ -165,8 +165,38 @@ export function UserSearch() {
     router.push(`/profile/${userId}`)
   }
 
-  const handleStartChat = (userId: string) => {
-    router.push(`/chat/${userId}`)
+  const handleStartChat = async (userId: string) => {
+    if (!currentUser) return
+
+    try {
+      // Check if chat already exists
+      const chatsQuery = query(
+        collection(db, "chats"),
+        where("participants", "array-contains", currentUser.uid)
+      )
+      const snapshot = await getDocs(chatsQuery)
+      const existingChat = snapshot.docs.find(doc => {
+        const data = doc.data()
+        return data.participants.includes(userId)
+      })
+
+      if (existingChat) {
+        router.push(`/chat?id=${existingChat.id}`)
+        return
+      }
+
+      // Create new chat
+      const chatRef = await addDoc(collection(db, "chats"), {
+        participants: [currentUser.uid, userId],
+        lastMessage: "",
+        timestamp: serverTimestamp(),
+        unreadCount: 0
+      })
+
+      router.push(`/chat?id=${chatRef.id}`)
+    } catch (error) {
+      console.error("Error starting chat:", error)
+    }
   }
 
   return (
