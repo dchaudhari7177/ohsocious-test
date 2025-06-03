@@ -114,7 +114,7 @@ export default function ProfilePage() {
               </div>
             </div>
             <Button variant="secondary" size="sm" asChild>
-              <Link href="/profile/edit">
+              <Link href="/settings">
                 <Edit className="mr-2 h-4 w-4" />
                 Edit Profile
               </Link>

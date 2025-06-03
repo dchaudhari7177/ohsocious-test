@@ -1,8 +1,16 @@
 [
   {
-    "origin": ["*"],
-    "method": ["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"],
+    "origin": ["http://localhost:3000", "https://ohsocious-mern.web.app", "https://ohsocious-mern.firebaseapp.com"],
+    "method": ["GET", "HEAD", "DELETE", "PUT", "POST", "OPTIONS"],
     "maxAgeSeconds": 3600,
-    "responseHeader": ["Content-Type", "Authorization", "Content-Length", "User-Agent", "x-goog-resumable"]
+    "responseHeader": [
+      "Content-Type",
+      "Access-Control-Allow-Origin",
+      "Authorization",
+      "Content-Length",
+      "User-Agent",
+      "x-goog-resumable",
+      "x-goog-meta-*"
+    ]
   }
 ] 
