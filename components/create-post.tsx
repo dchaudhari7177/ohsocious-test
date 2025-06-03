@@ -88,7 +88,7 @@ export function CreatePost({ postType = "normal" }: { postType?: "normal" | "con
   console.log("CreatePost rendering with:", { user: !!user, userData: !!userData })
 
   return (
-    <Card className="mb-6">
+    <Card className={`mb-6${postType === "confession" ? " bg-gradient-to-r from-purple-100 via-purple-50 to-pink-100 border-2 border-purple-300 shadow-lg" : ""}`}>
       <form onSubmit={handleSubmit} className="p-4">
         <div className="flex gap-4">
           <Avatar>
@@ -99,6 +99,12 @@ export function CreatePost({ postType = "normal" }: { postType?: "normal" | "con
             )}
           </Avatar>
           <div className="flex-1">
+            {postType === "confession" && (
+              <div className="flex items-center gap-3 mb-3">
+                <span className="inline-block text-3xl animate-bounce animate-spin-slow" style={{ animationDuration: '2s', display: 'inline-block', transform: 'rotate(-10deg)' }}>👻</span>
+                <span className="text-purple-800 font-bold text-lg drop-shadow-sm">Confession Mode: <span className="font-semibold">You are posting anonymously.</span></span>
+              </div>
+            )}
             <Textarea
               placeholder="What's on your mind?"
               value={content}

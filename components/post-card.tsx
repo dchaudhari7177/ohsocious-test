@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Timestamp } from "firebase/firestore"
-import { Heart, MessageCircle, Share2, MoreHorizontal } from "lucide-react"
+import { Heart, MessageSquare, Share2, MoreHorizontal } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 export interface Post {
@@ -26,6 +26,9 @@ export interface Post {
   }
   anonymousName?: string
   anonymousAvatar?: string
+  mood?: string
+  hashtags?: string[]
+  likedByCurrentUser?: boolean
 }
 
 interface PostCardProps {
@@ -52,6 +55,8 @@ export function PostCard({ post, onLike, onComment, onShare }: PostCardProps) {
             <Avatar>
               {post.type === "normal" && post.user?.avatar ? (
                 <AvatarImage src={post.user.avatar} alt={post.user.name} />
+              ) : post.type === "confession" && post.anonymousAvatar ? (
+                <span className="text-2xl">{post.anonymousAvatar}</span>
               ) : (
                 <AvatarFallback>
                   {post.type === "normal"
@@ -63,7 +68,7 @@ export function PostCard({ post, onLike, onComment, onShare }: PostCardProps) {
             <div>
               <p className="font-medium">
                 {post.type === "normal"
-                  ? post.user?.name
+                  ? post.user?.name || "Unknown User"
                   : post.anonymousName || "Anonymous"}
               </p>
               {post.type === "normal" && post.user?.department && (
@@ -78,6 +83,18 @@ export function PostCard({ post, onLike, onComment, onShare }: PostCardProps) {
 
         {/* Content */}
         <p className="mb-4 whitespace-pre-wrap">{post.content}</p>
+        {post.type === "confession" && post.mood && (
+          <div className="mb-2 text-2xl">{post.mood}</div>
+        )}
+        {post.type === "confession" && post.hashtags && post.hashtags.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-2">
+            {post.hashtags.map((tag: string) => (
+              <span key={tag} className="rounded-full bg-purple-100 px-3 py-1 text-xs font-semibold text-purple-700 hover:bg-purple-200 cursor-pointer transition">
+                #{tag}
+              </span>
+            ))}
+          </div>
+        )}
         {post.image && (
           <div className="relative mb-4 aspect-video overflow-hidden rounded-lg">
             <img
@@ -95,12 +112,13 @@ export function PostCard({ post, onLike, onComment, onShare }: PostCardProps) {
               variant="ghost"
               size="sm"
               className={cn(
-                "flex items-center gap-2",
-                isLiked && "text-red-500"
+                "flex items-center gap-2 transition-colors",
+                isLiked || post.likedByCurrentUser ? "text-purple-600" : "",
+                (isLiked || post.likedByCurrentUser) && "animate-pulse"
               )}
               onClick={handleLike}
             >
-              <Heart className={cn("h-5 w-5", isLiked && "fill-current")} />
+              <Heart className={cn("h-5 w-5 transition-all", (isLiked || post.likedByCurrentUser) && "fill-current scale-110 text-purple-600")}/>
               <span>{post.likes || 0}</span>
             </Button>
             <Button
@@ -109,7 +127,7 @@ export function PostCard({ post, onLike, onComment, onShare }: PostCardProps) {
               className="flex items-center gap-2"
               onClick={() => onComment?.(post.id)}
             >
-              <MessageCircle className="h-5 w-5" />
+              <MessageSquare className="h-5 w-5" />
               <span>{post.comments || 0}</span>
             </Button>
             <Button
