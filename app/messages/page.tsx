@@ -20,6 +20,7 @@ import { Container } from "@/components/ui/container"
 import { MessageSquare, Search, Users } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 
 interface ChatPreview {
   id: string
@@ -108,6 +109,8 @@ export default function MessagesPage() {
     return fullName.includes(searchQuery.toLowerCase())
   })
 
+  if (!user) return null
+
   if (loading) {
     return (
       <Container>
@@ -175,7 +178,7 @@ export default function MessagesPage() {
             filteredChats.map((chat) => (
               <Link
                 key={chat.id}
-                href={`/chat/${chat.otherUser.id}`}
+                href={`/chat?id=${chat.id}`}
                 className="group block overflow-hidden rounded-lg border bg-white transition-all hover:border-primary-purple hover:shadow-md"
               >
                 <div className="flex items-start gap-4 p-4">
@@ -206,9 +209,9 @@ export default function MessagesPage() {
                         {chat.lastMessage}
                       </p>
                       {chat.unreadCount > 0 && (
-                        <span className="ml-2 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary-purple text-xs font-medium text-white">
+                        <Badge className="bg-primary-purple hover:bg-primary-purple/90">
                           {chat.unreadCount}
-                        </span>
+                        </Badge>
                       )}
                     </div>
                   </div>

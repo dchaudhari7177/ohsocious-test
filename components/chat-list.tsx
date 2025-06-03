@@ -32,7 +32,7 @@ export function ChatList({ chats, type }: ChatListProps) {
       {chats.map((chat) => (
         <Link
           key={chat.id}
-          href={type === "direct" ? `/chat/${chat.id}` : `/chat/group/${chat.id}`}
+          href={`/chat?id=${chat.id}`}
           className="flex items-center gap-3 rounded-lg border p-3 transition-colors hover:bg-gray-50"
         >
           <Avatar>
