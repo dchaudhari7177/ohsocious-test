@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useRef } from "react"
 import { Container } from "@/components/ui/container"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
@@ -14,7 +14,9 @@ import { auth, db } from "@/lib/firebase"
 import { doc, updateDoc, deleteDoc } from "firebase/firestore"
 import { deleteUser, EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth"
 import { useToast } from "@/components/ui/use-toast"
-import { Loader2, AlertTriangle } from "lucide-react"
+import { Loader2, AlertTriangle, Camera, Trash } from "lucide-react"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import type { UserData } from "@/types/user"
 import {
   Dialog,
   DialogContent,
@@ -31,6 +33,8 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [password, setPassword] = useState("")
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [uploadingImage, setUploadingImage] = useState(false)
 
   const [formData, setFormData] = useState({
     firstName: userData?.firstName || "",
@@ -40,6 +44,7 @@ export default function SettingsPage() {
     year: userData?.year || "",
     bio: userData?.bio || "",
     location: userData?.location || "",
+    profileImage: userData?.profileImage || "",
     notifications: {
       email: true,
       push: true,
@@ -52,6 +57,90 @@ export default function SettingsPage() {
       allowMessages: true,
     },
   })
+
+  const handleProfileImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || !e.target.files[0] || !user) return
+
+    const file = e.target.files[0]
+    const maxSize = 5 * 1024 * 1024 // 5MB
+
+    if (file.size > maxSize) {
+      toast({
+        title: "Error",
+        description: "Image size should be less than 5MB",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      setUploadingImage(true)
+
+      // Convert image to base64
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.readAsDataURL(file)
+        reader.onload = () => resolve(reader.result as string)
+        reader.onerror = (error) => reject(error)
+      })
+
+      // Update user document with base64 image
+      await updateDoc(doc(db, "users", user.uid), {
+        profileImage: base64,
+      })
+
+      setFormData(prev => ({
+        ...prev,
+        profileImage: base64,
+      }))
+
+      toast({
+        title: "Success",
+        description: "Profile picture updated successfully",
+      })
+    } catch (error) {
+      console.error("Error uploading image:", error)
+      toast({
+        title: "Error",
+        description: "Failed to upload profile picture",
+        variant: "destructive",
+      })
+    } finally {
+      setUploadingImage(false)
+    }
+  }
+
+  const handleRemoveProfileImage = async () => {
+    if (!user || !userData?.profileImage) return
+
+    try {
+      setUploadingImage(true)
+
+      // Remove profile image from user document
+      await updateDoc(doc(db, "users", user.uid), {
+        profileImage: "",
+      })
+
+      setFormData(prev => ({
+        ...prev,
+        profileImage: "",
+      }))
+
+      toast({
+        title: "Success",
+        description: "Profile picture removed successfully",
+      })
+    } catch (error) {
+      console.error("Error removing image:", error)
+      toast({
+        title: "Error",
+        description: "Failed to remove profile picture",
+        variant: "destructive",
+      })
+    } finally {
+      setUploadingImage(false)
+    }
+  }
 
   const handleInputChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
@@ -161,6 +250,61 @@ export default function SettingsPage() {
         />
 
         <div className="mt-6 space-y-6">
+          {/* Profile Picture */}
+          <Card className="p-6">
+            <h2 className="text-lg font-semibold">Profile Picture</h2>
+            <p className="text-sm text-gray-500 mb-4">
+              Upload a profile picture to personalize your account
+            </p>
+
+            <div className="flex items-center gap-6">
+              <div className="relative">
+                <Avatar className="h-24 w-24">
+                  {formData.profileImage ? (
+                    <AvatarImage src={formData.profileImage} alt={`${formData.firstName} ${formData.lastName}`} />
+                  ) : (
+                    <AvatarFallback className="bg-primary-purple text-white text-xl">
+                      {formData.firstName[0]}
+                      {formData.lastName[0]}
+                    </AvatarFallback>
+                  )}
+                </Avatar>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  className="hidden"
+                  accept="image/*"
+                  onChange={handleProfileImageUpload}
+                />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadingImage}
+                >
+                  {uploadingImage ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Camera className="mr-2 h-4 w-4" />
+                  )}
+                  Change Picture
+                </Button>
+                {formData.profileImage && (
+                  <Button
+                    variant="outline"
+                    onClick={handleRemoveProfileImage}
+                    disabled={uploadingImage}
+                  >
+                    <Trash className="mr-2 h-4 w-4" />
+                    Remove Picture
+                  </Button>
+                )}
+              </div>
+            </div>
+          </Card>
+
           {/* Profile Settings */}
           <Card className="p-6">
             <h2 className="text-lg font-semibold">Profile Settings</h2>

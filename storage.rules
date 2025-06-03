@@ -11,17 +11,18 @@ service firebase.storage {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    // Allow public read access during development
-    match /{allPaths=**} {
+    // Profile images rules
+    match /profile-images/{userId}/{fileName} {
       allow read: if true;
+      allow create, update: if isOwner(userId)
+                          && request.resource.size < 5 * 1024 * 1024 // 5MB
+                          && request.resource.contentType.matches('image/.*');
+      allow delete: if isOwner(userId);
     }
 
-    // Profile images rules
-    match /profile-images/{userId} {
-      // Allow authenticated users to upload their own profile pictures
-      allow write: if isAuthenticated()
-                  && request.resource.size < 5 * 1024 * 1024 // 5MB
-                  && request.resource.contentType.matches('image/.*');
+    // Default deny
+    match /{allPaths=**} {
+      allow read, write: if false;
     }
   }
 }
