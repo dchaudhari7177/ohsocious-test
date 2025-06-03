@@ -3,10 +3,10 @@
 
 import { useState, useEffect } from "react"
 import { Card } from "@/components/ui/card"
-import { Button, ButtonProps } from "@/components/ui/button"
+import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { ImagePlus, Send } from "lucide-react"
+import { ImagePlus, Loader2 } from "lucide-react"
 import { useAuth } from "@/contexts/auth-context"
 import { db, storage } from "@/lib/firebase"
 import { collection, addDoc, serverTimestamp } from "firebase/firestore"
@@ -88,7 +88,7 @@ export function CreatePost({ postType = "normal" }: { postType?: "normal" | "con
   console.log("CreatePost rendering with:", { user: !!user, userData: !!userData })
 
   return (
-    <Card className={`mb-6${postType === "confession" ? " bg-gradient-to-r from-purple-100 via-purple-50 to-pink-100 border-2 border-purple-300 shadow-lg" : ""}`}>
+    <Card className={`mb-6 border-2 border-gray-100 shadow-sm hover:shadow-md transition-shadow${postType === "confession" ? " bg-gradient-to-r from-purple-100 via-purple-50 to-pink-100 border-2 border-purple-300 shadow-lg" : ""}`}>
       <form onSubmit={handleSubmit} className="p-4">
         <div className="flex gap-4">
           <Avatar>
@@ -109,7 +109,7 @@ export function CreatePost({ postType = "normal" }: { postType?: "normal" | "con
               placeholder="What's on your mind?"
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              className="min-h-[100px] resize-none"
+              className="min-h-[100px] resize-none border-gray-200 focus:border-primary-purple"
             />
             {imagePreview && (
               <div className="relative mt-2 aspect-video w-full overflow-hidden rounded-lg">
@@ -139,15 +139,27 @@ export function CreatePost({ postType = "normal" }: { postType?: "normal" | "con
                 <label htmlFor="image-upload">
                   <Button
                     type="button"
-                    className="flex items-center gap-2"
+                    variant="outline"
+                    className="flex items-center gap-2 hover:bg-gray-50"
                   >
                     <ImagePlus className="h-5 w-5" />
                     Add Image
                   </Button>
                 </label>
               </div>
-              <Button type="submit" disabled={isLoading || !content.trim()}>
-                {isLoading ? "Posting..." : "Post"}
+              <Button 
+                type="submit" 
+                disabled={isLoading || !content.trim()}
+                className="bg-primary-purple hover:bg-primary-purple/90"
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Posting...
+                  </>
+                ) : (
+                  "Post"
+                )}
               </Button>
             </div>
           </div>

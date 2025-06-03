@@ -342,7 +342,11 @@ export default function FeedPage() {
           </TabsList>
 
           <div className="space-y-4">
-            {activeTab === "all" && user && <CreatePost postType="normal" />}
+            {activeTab === "all" && user && (
+              <div className="sticky top-16 z-10 mb-6 bg-white/80 backdrop-blur-sm">
+                <CreatePost postType="normal" />
+              </div>
+            )}
             {activeTab === "confessions" && (
               <>
                 <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
