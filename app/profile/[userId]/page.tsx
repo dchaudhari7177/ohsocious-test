@@ -68,7 +68,7 @@ export default function ProfilePage() {
   }, [userId])
 
   const handleFollow = async () => {
-    if (!user || !profile || !userId) return
+    if (!user || !userData || !profile || !userId) return
 
     try {
       console.log("Starting follow operation for:", userId)
@@ -88,12 +88,18 @@ export default function ProfilePage() {
 
       if (!isFollowing) {
         console.log("Creating follow notification")
-        await createFollowNotification({
+        const notificationData = {
           followerId: user.uid,
-          followerName: `${userData?.firstName} ${userData?.lastName}`,
-          followerAvatar: userData?.profileImage,
+          followerName: `${userData.firstName} ${userData.lastName}`,
           userId: userId,
-        })
+        }
+
+        // Only add followerAvatar if it exists
+        if (userData.profileImage) {
+          Object.assign(notificationData, { followerAvatar: userData.profileImage })
+        }
+
+        await createFollowNotification(notificationData)
         console.log("Follow notification created successfully")
       }
 

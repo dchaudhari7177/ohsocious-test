@@ -77,7 +77,7 @@ export default function PeoplePage() {
   }, [user])
 
   const handleFollow = async (userId: string) => {
-    if (!user) return
+    if (!user || !userData) return
 
     try {
       const isFollowing = userData?.following?.includes(userId)
@@ -99,12 +99,18 @@ export default function PeoplePage() {
 
       // Create notification when following (not when unfollowing)
       if (!isFollowing) {
-        await createFollowNotification({
+        const notificationData = {
           followerId: user.uid,
-          followerName: `${userData?.firstName} ${userData?.lastName}`,
-          followerAvatar: userData?.profileImage,
+          followerName: `${userData.firstName} ${userData.lastName}`,
           userId: userId,
-        })
+        }
+
+        // Only add followerAvatar if it exists
+        if (userData.profileImage) {
+          Object.assign(notificationData, { followerAvatar: userData.profileImage })
+        }
+
+        await createFollowNotification(notificationData)
       }
 
       // Refresh user data to update UI
