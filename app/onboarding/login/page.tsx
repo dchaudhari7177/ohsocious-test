@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { auth } from "@/lib/firebase"
+import { auth, db } from "@/lib/firebase"
 import { signInWithEmailAndPassword, setPersistence, browserLocalPersistence, sendPasswordResetEmail, Auth, fetchSignInMethodsForEmail } from "firebase/auth"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
@@ -27,6 +27,7 @@ import { SocialAuthButtons } from "@/components/ui/social-auth-buttons"
 import { Separator } from "@/components/ui/separator"
 import { LockKeyhole, Mail } from "lucide-react"
 import { signInWithGoogle } from "@/lib/google-auth"
+import { doc, getDoc } from "firebase/firestore"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("")
@@ -97,30 +98,44 @@ export default function LoginPage() {
     setError("")
     setLoading(true)
 
+    if (!email || !password) {
+      setError("Please enter both email and password")
+      setLoading(false)
+      return
+    }
+
     try {
+      const trimmedEmail = email.toLowerCase().trim()
+
       // Validate .edu email
-      if (!email.toLowerCase().endsWith('.edu')) {
+      if (!trimmedEmail.endsWith('.edu')) {
         setError("Please use a college email address (.edu)")
+        setLoading(false)
         return
       }
 
-      // Check if email exists
-      const signInMethods = await fetchSignInMethodsForEmail(auth as Auth, email)
-      
-      if (signInMethods.length === 0) {
-        setError("No account found with this email. Please sign up first.")
+      // Attempt to sign in
+      const userCredential = await signInWithEmailAndPassword(auth, trimmedEmail, password)
+      const user = userCredential.user
+
+      if (!user) {
+        setError("Failed to sign in. Please try again.")
         return
       }
 
-      // Ensure we're using local persistence
-      await setPersistence(auth as Auth, browserLocalPersistence)
+      // Check if user exists in Firestore
+      const userDoc = await getDoc(doc(db, "users", user.uid))
       
-      // Sign in
-      const userCredential = await signInWithEmailAndPassword(auth as Auth, email, password)
-      
+      if (!userDoc.exists()) {
+        // If user exists in Auth but not in Firestore, they need to complete signup
+        await auth.signOut()
+        setError("Please complete the signup process first")
+        return
+      }
+
       // Check if email is verified
-      if (!userCredential.user.emailVerified) {
-        router.push(`/onboarding/verify?email=${encodeURIComponent(email)}`)
+      if (!user.emailVerified) {
+        router.push(`/onboarding/verify?email=${encodeURIComponent(trimmedEmail)}`)
         return
       }
 
@@ -128,16 +143,24 @@ export default function LoginPage() {
         title: "Welcome back!",
         description: "Successfully signed in",
       })
-      router.push("/feed")
+
+      // Add a small delay before redirecting to ensure auth state is properly updated
+      setTimeout(() => {
+        router.push("/feed")
+      }, 500)
+
     } catch (error: any) {
       console.error("Login error:", error)
-      setError(
-        error.code === "auth/invalid-credential"
-          ? "Invalid email or password"
-          : error.code === "auth/too-many-requests"
-          ? "Too many failed attempts. Please try again later."
-          : "An error occurred during login"
-      )
+      
+      // More specific error messages
+      const errorMessage = 
+        error.code === "auth/invalid-credential" ? "Invalid email or password" :
+        error.code === "auth/invalid-email" ? "Invalid email format" :
+        error.code === "auth/user-disabled" ? "This account has been disabled" :
+        error.code === "auth/too-many-requests" ? "Too many failed attempts. Please try again later." :
+        "An error occurred during login. Please try again."
+      
+      setError(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -146,45 +169,81 @@ export default function LoginPage() {
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsResetting(true)
+    setError("")
+
+    if (!resetEmail) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Please enter your email address",
+      })
+      setIsResetting(false)
+      return
+    }
 
     try {
+      const trimmedEmail = resetEmail.toLowerCase().trim()
+
       // Validate .edu email
-      if (!resetEmail.toLowerCase().endsWith('.edu')) {
+      if (!trimmedEmail.endsWith('.edu')) {
         toast({
           variant: "destructive",
           title: "Invalid Email",
           description: "Please use a college email address (.edu)",
         })
+        setIsResetting(false)
         return
       }
 
-      // Check if email exists
-      const signInMethods = await fetchSignInMethodsForEmail(auth as Auth, resetEmail)
+      // Try to sign in to check if user exists (will fail with wrong password but that's ok)
+      try {
+        await signInWithEmailAndPassword(auth, trimmedEmail, "dummy-password")
+      } catch (signInError: any) {
+        // If error is invalid password, user exists
+        if (signInError.code !== "auth/invalid-credential") {
+          toast({
+            variant: "destructive",
+            title: "Account Not Found",
+            description: "No account found with this email. Please sign up first.",
+          })
+          setIsResetting(false)
+          return
+        }
+      }
+
+      // Configure action code settings
+      const actionCodeSettings = {
+        url: `${window.location.protocol}//${window.location.host}/onboarding/login`,
+        handleCodeInApp: false
+      }
+
+      // Send password reset email
+      await sendPasswordResetEmail(auth, trimmedEmail, actionCodeSettings)
       
-      if (signInMethods.length === 0) {
-        toast({
-          variant: "destructive",
-          title: "Account Not Found",
-          description: "No account found with this email. Please sign up first.",
-        })
-        return
-      }
-
-      await sendPasswordResetEmail(auth as Auth, resetEmail)
+      // Close dialog and show success message
       setIsResetDialogOpen(false)
+      setResetEmail("")
+      
       toast({
         title: "Reset email sent",
-        description: "Check your email for password reset instructions",
+        description: "Check your email (including spam folder) for password reset instructions. The email should arrive within a few minutes.",
+        duration: 6000,
       })
-      setResetEmail("")
     } catch (error: any) {
       console.error("Reset password error:", error)
+      
+      const errorMessage = 
+        error.code === "auth/invalid-email" ? "Invalid email format" :
+        error.code === "auth/user-not-found" ? "No account found with this email" :
+        error.code === "auth/too-many-requests" ? "Too many requests. Please try again later." :
+        error.code === "auth/network-request-failed" ? "Network error. Please check your internet connection." :
+        "Failed to send reset email. Please try again."
+
       toast({
         variant: "destructive",
         title: "Error",
-        description: error.code === "auth/too-many-requests"
-          ? "Too many requests. Please try again later."
-          : "Failed to send reset email",
+        description: errorMessage,
+        duration: 6000,
       })
     } finally {
       setIsResetting(false)
